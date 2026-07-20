@@ -627,13 +627,16 @@ export function N8NScreen() {
         </div>
 
         <div>
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">URL Base N8N</label>
+          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">URL Pública N8N (para disparar webhooks)</label>
           <input
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder="https://n8n.meuservidor.com"
             className="w-full rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm outline-none focus:border-[color:var(--amber)] focus:shadow-[var(--shadow-amber-glow)]"
           />
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Usada apenas para montar links de webhook disparados direto deste navegador. A listagem de workflows sempre usa a configuracao segura do servidor.
+          </p>
         </div>
 
         <div>
