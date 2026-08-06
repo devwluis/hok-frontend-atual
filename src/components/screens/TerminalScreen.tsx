@@ -31,7 +31,7 @@ async function runShell(
   const res = await fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify({ cmd }),
+    body: JSON.stringify({ command: cmd }),
     signal,
   });
 

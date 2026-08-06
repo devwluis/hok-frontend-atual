@@ -79,11 +79,11 @@ export function Drawer() {
     toggleDrawer(false);
   };
 
-  const removeConversation = (id: string) => {
+  const removeConversation = async (id: string) => {
     if (confirmDelete === id) {
-      conversationsStore.remove(id);
       if (conversationId === id) setConversationId(null);
       setConfirmDelete(null);
+      await conversationsStore.remove(id);
       refresh();
     } else {
       setConfirmDelete(id);

@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Globe, Bug, Send, Copy, Webhook, ChevronDown, ChevronUp, Workflow, X, Image as ImageIcon, Paperclip, Mic, FileAudio } from "lucide-react";
+import { Globe, Bug, Send, Copy, Webhook, ChevronDown, ChevronUp, X, Image as ImageIcon, Paperclip, Mic, FileAudio, Sparkles, Brain } from "lucide-react";
+import { SiN8N } from "react-icons/si";
 import { ElectricCore } from "@/components/chat/ElectricCore";
 import { NuclearCore } from "@/components/chat/NuclearCore";
 import { cn } from "@/lib/utils";
@@ -10,6 +11,7 @@ import { useAppState } from "@/hooks/use-app-state";
 import { HOK_MODELS, getModel } from "@/lib/hok-models";
 import { type PendingAction } from "@/lib/chat-stream";
 import { detectN8NIntent, N8N_SYSTEM_PROMPT, type N8NModeState } from "@/lib/n8n-expert";
+import { OwnerGate } from "@/components/shell/OwnerGate";
 
 // Unified settings key
 const SETTINGS_KEY = "hokma.settings.v1";
@@ -138,9 +140,22 @@ function MessageBubble({
         {bodyText && <div className="whitespace-pre-wrap leading-relaxed">{bodyText}</div>}
         {jsonBlock && <JsonBlock json={jsonBlock} onSendToWebhook={onSendToWebhook} />}
         {!isUser && msg.pendingAction && (
-          <div className="mt-2 flex gap-2 border-t border-border/60 pt-2">
-            <button onClick={onApprovePending} className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-500 hover:bg-emerald-500/25">Aprovar</button>
-            <button onClick={onRejectPending} className="rounded-full bg-red-500/15 px-3 py-1 text-xs font-medium text-red-500 hover:bg-red-500/25">Rejeitar</button>
+          <div className="mt-2 border-t border-border/60 pt-2">
+            {msg.pendingAction.action_type === "self_mod" && msg.pendingAction.diff_preview && (
+              <div className="mb-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-500">
+                  <span>⚠️</span>
+                  <span>Autmodificação — Revise o diff antes de aprovar</span>
+                </div>
+                <pre className="max-h-48 overflow-auto rounded bg-black/60 p-2 text-[10px] font-mono leading-tight text-amber-100/90 whitespace-pre-wrap">
+                  {msg.pendingAction.diff_preview}
+                </pre>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={onApprovePending} className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-500 hover:bg-emerald-500/25">Aprovar</button>
+              <button onClick={onRejectPending} className="rounded-full bg-red-500/15 px-3 py-1 text-xs font-medium text-red-500 hover:bg-red-500/25">Rejeitar</button>
+            </div>
           </div>
         )}
 
@@ -199,6 +214,9 @@ export function ChatScreen() {
   const [selectedModel, setSelectedModel] = useState("auto");
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [n8nMode, setN8nMode] = useState<N8NModeState>("off");
+  const [forcedEngine, setForcedEngine] = useState<"auto" | "claude_code" | "hermes">("auto");
+  const [resolvedEngine, setResolvedEngine] = useState<"claude_code" | "hermes" | null>(null);
+  const [showEnginePicker, setShowEnginePicker] = useState(false);
   const [chatMode, setChatMode] = useState<"build" | "plan">("build");
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const pendingActionRef = useRef<PendingAction | null>(null);
@@ -332,8 +350,13 @@ export function ChatScreen() {
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["X-Hok-Token"] = token;
+      if (conversationId) headers["X-Conversation-Id"] = conversationId;
       const res = await fetch(baseUrl.replace(/\/$/, "") + path, { method: "POST", headers });
-      const data = (await res.json()) as { reply?: string };
+      const data = (await res.json().catch(() => ({}))) as { reply?: string; status?: string };
+      if (!res.ok || data.status === "unauthorized") {
+        setError(`Falha ao processar a ação pendente (HTTP ${res.status}${data.status ? `: ${data.status}` : ""}).`);
+        return;
+      }
       const replyMsg: Msg = {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -346,7 +369,7 @@ export function ChatScreen() {
         return next;
       });
     } catch {
-      setError("Falha ao processar a ação pendente.");
+      setError("Falha ao processar a ação pendente (erro de rede).");
     } finally {
       setPendingAction(null);
     }
@@ -412,6 +435,7 @@ export function ChatScreen() {
     const startedAt = performance.now();
 
     abortRef.current = new AbortController();
+    setResolvedEngine(null);
 
     // Build messages — inject N8N system prompt at the top when active
     const outMessages: { role: "user" | "assistant" | "system"; content: string }[] = [
@@ -425,7 +449,10 @@ export function ChatScreen() {
         baseUrl,
         endpointPath,
         token,
+        conversationId,
         webSearch,
+        forceClaudeCode: forcedEngine === "claude_code",
+        forceHermes: forcedEngine === "hermes",
         selectedModel,
         messages: outMessages,
         imageB64,
@@ -434,6 +461,9 @@ export function ChatScreen() {
         audioMime: audioB64 ? audioMime : undefined,
         mode: chatMode,
         onPendingAction: (pa) => { pendingActionRef.current = pa; setPendingAction(pa); },
+        onEngineUsed: (eng) => {
+          if (eng === "hermes" || eng === "claude_code") setResolvedEngine(eng);
+        },
         signal: abortRef.current.signal,
         onToken: (delta) => {
           accRef.current += delta;
@@ -480,6 +510,7 @@ export function ChatScreen() {
   const { serverUrl } = readSettings();
 
   return (
+    <OwnerGate label="Chat">
     <div className="flex h-full flex-col bg-background">
       {/* ── Messages ── */}
       <div className="thin-scroll flex-1 overflow-y-auto px-4 py-4">
@@ -510,8 +541,9 @@ export function ChatScreen() {
             >
               <div className="rounded-[20px] rounded-bl-md border border-border bg-card px-4">
                 <ElectricCore
-                  label="Processando requisição…"
+                  label={(forcedEngine === "hermes" || (forcedEngine === "auto" && resolvedEngine === "hermes")) ? <><b>Hermes</b> processando…</> : (forcedEngine === "claude_code" || (forcedEngine === "auto" && resolvedEngine === "claude_code")) ? <><b>Claude Code</b> processando…</> : "Processando requisição…"}
                   modelName={activeModel.id !== "auto" ? activeModel.label : undefined}
+                  engine={forcedEngine !== "auto" ? forcedEngine : (resolvedEngine ?? "auto")}
                 />
               </div>
             </motion.div>
@@ -548,7 +580,7 @@ export function ChatScreen() {
               background: "rgba(225,29,72,0.07)",
             }}
           >
-            <Workflow className="h-3.5 w-3.5 shrink-0 text-rose-500" />
+            <SiN8N className="h-3.5 w-3.5 shrink-0 text-rose-500" />
             <span className="flex-1 text-[11px] font-medium text-rose-500">
               Modo N8N Expert ativo
               {n8nMode === "auto" && (
@@ -675,7 +707,7 @@ export function ChatScreen() {
             ref={taRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+            
             placeholder="Insira sua instrução, Sr.…"
             rows={1}
             className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
@@ -765,20 +797,71 @@ export function ChatScreen() {
                 : "border-border bg-card text-muted-foreground hover:border-rose-500/30 hover:text-rose-400",
             )}
           >
-            <Workflow className="h-3 w-3" />
+            <SiN8N className="h-3 w-3" />
             N8N
           </button>
-
+          <div className="relative">
+            <button
+              onClick={() => setShowEnginePicker((v) => !v)}
+              title="Forçar engine"
+              className={cn(
+                "flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-mono font-medium transition-all",
+                forcedEngine !== "auto"
+                  ? "border-[color:var(--amber)]/40 bg-[color:var(--amber)]/10 text-[color:var(--amber)]"
+                  : "border-border bg-card text-muted-foreground hover:border-[color:var(--amber)]/30 hover:text-[color:var(--amber)]",
+              )}
+            >
+              {forcedEngine === "claude_code" && <Sparkles className="h-3 w-3" />}
+              {forcedEngine === "hermes" && <Brain className="h-3 w-3" />}
+              {forcedEngine === "auto" && <span className="text-[10px]">···</span>}
+              <span>
+                {forcedEngine === "claude_code" ? "Claude Code" : forcedEngine === "hermes" ? "Hermes" : "Forçar engine"}
+              </span>
+              {showEnginePicker ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            </button>
+            {showEnginePicker && (
+              <div className="absolute bottom-full left-0 z-20 mb-1 w-40 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+                <button
+                  onClick={() => { setForcedEngine("auto"); setShowEnginePicker(false); }}
+                  className={cn(
+                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
+                    forcedEngine === "auto" ? "text-[color:var(--amber)]" : "text-foreground",
+                  )}
+                >
+                  Automático (recomendado)
+                </button>
+                <button
+                  onClick={() => { setForcedEngine("claude_code"); setShowEnginePicker(false); }}
+                  className={cn(
+                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
+                    forcedEngine === "claude_code" ? "text-[color:var(--amber)]" : "text-foreground",
+                  )}
+                >
+                  <Sparkles className="h-3 w-3" />
+                  Claude Code
+                </button>
+                <button
+                  onClick={() => { setForcedEngine("hermes"); setShowEnginePicker(false); }}
+                  className={cn(
+                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
+                    forcedEngine === "hermes" ? "text-[color:var(--amber)]" : "text-foreground",
+                  )}
+                >
+                  <Brain className="h-3 w-3" />
+                  Hermes
+                </button>
+              </div>
+            )}
+          </div>
           {webSearch && (
             <span className="text-[10px] font-mono text-[color:var(--cyan-glow)]">web:on</span>
           )}
           {debugMode && (
             <span className="text-[10px] font-mono text-red-500">debug:on</span>
           )}
-
-          <span className="ml-auto text-[10px] text-muted-foreground">Enter · Shift↵</span>
         </div>
       </div>
     </div>
+    </OwnerGate>
   );
 }

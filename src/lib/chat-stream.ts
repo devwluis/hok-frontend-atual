@@ -3,7 +3,7 @@
 // We always read line-by-line; SSE "data:" prefix is stripped when present.
 
 export type StreamMsg = { role: "user" | "assistant" | "system"; content: string };
-export type PendingAction = { id: string; tool_name: string; description: string; created_at: string };
+export type PendingAction = { id: string; tool_name: string; description: string; created_at: string; action_type?: string; diff_preview?: string };
 
 export type StreamOpts = {
   baseUrl: string;
@@ -11,17 +11,27 @@ export type StreamOpts = {
   token?: string;
   messages: StreamMsg[];
   webSearch?: boolean;
+  forceClaudeCode?: boolean;
+  forceHermes?: boolean;
   selectedModel?: string;
   imageB64?: string;
   imageMime?: string;
   audioB64?: string;
   audioMime?: string;
   mode?: "plan" | "build";
+  conversationId?: string | null;
   onPendingAction?: (pa: PendingAction | null) => void;
+  onEngineUsed?: (engine: string) => void;
   signal?: AbortSignal;
   onToken: (delta: string) => void;
 };
 
+function extractEngineUsed(payload: unknown): string | null {
+  if (payload == null || typeof payload !== "object") return null;
+  const p = payload as Record<string, unknown>;
+  const e = p.engine_used ?? p.engineUsed;
+  return typeof e === "string" && e ? e : null;
+}
 function extractPendingAction(payload: unknown): PendingAction | null {
   if (payload == null || typeof payload !== "object") return null;
   const p = payload as Record<string, unknown>;
@@ -33,6 +43,8 @@ function extractPendingAction(payload: unknown): PendingAction | null {
       tool_name: String(o.tool_name ?? ""),
       description: String(o.description ?? ""),
       created_at: String(o.created_at ?? ""),
+      action_type: String(o.action_type ?? o.actionType ?? ""),
+      diff_preview: String(o.diff_preview ?? o.diffPreview ?? ""),
     };
   }
   return null;
@@ -99,13 +111,17 @@ export async function streamChat(opts: StreamOpts): Promise<string> {
     token,
     messages,
     webSearch,
+    forceClaudeCode,
+    forceHermes,
     selectedModel = "auto",
     imageB64,
     imageMime,
     audioB64,
     audioMime,
     mode,
+    conversationId,
     onPendingAction,
+    onEngineUsed,
     signal,
     onToken,
   } = opts;
@@ -124,6 +140,9 @@ export async function streamChat(opts: StreamOpts): Promise<string> {
       headers["X-Hok-Token"] = token;
     }
   }
+  if (conversationId) {
+    headers["X-Conversation-Id"] = conversationId;
+  }
 
   // HOK backend contract:
   //   `message`  — REQUIRED: last user turn as plain string
@@ -135,9 +154,12 @@ export async function streamChat(opts: StreamOpts): Promise<string> {
   const bodyObj: Record<string, unknown> = {
     message: lastUserMessage,
     messages,
+    history: messages,
     model: selectedModel,
     stream: true,
     web_search: !!webSearch,
+    forceClaudeCode: !!forceClaudeCode,
+    forceHermes: !!forceHermes,
     ...(mode ? { mode } : {}),
     ...(imageB64 ? { image_b64: imageB64, image_mime: imageMime || "image/jpeg" } : {}),
     ...(audioB64 ? { audio_b64: audioB64, audio_mime: audioMime || "audio/webm" } : {}),
@@ -195,6 +217,16 @@ export async function streamChat(opts: StreamOpts): Promise<string> {
             if (dataStr && dataStr !== "[DONE]") {
               const pa = extractPendingAction(JSON.parse(dataStr));
               if (pa) onPendingAction(pa);
+            }
+          } catch { /* ignore */ }
+        }
+        if (onEngineUsed) {
+          try {
+            let dataStr = rawLine.trim();
+            if (dataStr.startsWith("data:")) dataStr = dataStr.slice(5).trim();
+            if (dataStr && dataStr !== "[DONE]") {
+              const eu = extractEngineUsed(JSON.parse(dataStr));
+              if (eu) onEngineUsed(eu);
             }
           } catch { /* ignore */ }
         }

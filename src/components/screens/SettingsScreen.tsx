@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Eye, EyeOff, Check, Save, AlertCircle } from "lucide-react";
 import { ScreenFrame, ScreenHeader, Card } from "@/components/shell/ScreenFrame";
 import { usePersistentState } from "@/lib/use-persistent-state";
@@ -22,6 +22,15 @@ export function SettingsScreen() {
   const [shown, setShown] = useState<Record<string, boolean>>({});
   const [vals, setVals] = usePersistentState<Record<string, string>>(SETTINGS_KEY, {});
   const [savedAt, setSavedAt] = useState<Record<string, number>>({});
+  const [credits, setCredits] = useState<{
+    usage_monthly: number;
+    limit: number | null;
+    limit_remaining: number | null;
+    balance?: number;
+    total_credits?: number;
+    total_usage?: number;
+  } | null>(null);
+  const [creditsError, setCreditsError] = useState<string | null>(null);
 
   const markSaved = (k: string) => {
     setSavedAt((s) => ({ ...s, [k]: Date.now() }));
@@ -34,6 +43,15 @@ export function SettingsScreen() {
     }, 1500);
   };
 
+  useEffect(() => {
+    const url = (vals["Server URL"] || window.location.origin).replace(/\/$/, "");
+    const token = vals["HOK_TOKEN"] || "";
+    if (!token) return;
+    fetch(`${url}/openrouter/credits`, { headers: { "X-Hok-Token": token } })
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((d) => setCredits(d))
+      .catch((e) => setCreditsError(e instanceof Error ? e.message : "Erro desconhecido"));
+  }, [vals]);
   const serverUrl = vals["Server URL"] || "";
   const hokToken = vals["HOK_TOKEN"] || "";
   const showWarning = serverUrl && !hokToken;
@@ -85,6 +103,52 @@ export function SettingsScreen() {
             </div>
           </div>
         ))}
+      </Card>
+      <Card className="mt-4 space-y-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          💳 OpenRouter
+        </h3>
+        {creditsError && (
+          <p className="text-xs text-destructive">Nao foi possivel carregar: {creditsError}</p>
+        )}
+        {!creditsError && !credits && (
+          <p className="text-xs text-muted-foreground">Carregando...</p>
+        )}
+        {credits && (
+          <div className="space-y-1 text-sm">
+            {credits.balance != null && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Saldo</span>
+                <span className="font-mono font-semibold text-base">${credits.balance.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Gasto este mes</span>
+              <span className="font-mono">${credits.usage_monthly.toFixed(2)}</span>
+            </div>
+            {credits.total_credits != null && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Total comprado</span>
+                <span className="font-mono">${credits.total_credits.toFixed(2)}</span>
+              </div>
+            )}
+            {credits.limit != null && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Limite da chave</span>
+                <span className="font-mono">${credits.limit.toFixed(2)}</span>
+              </div>
+            )}
+            {credits.limit_remaining != null && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Restante (chave)</span>
+                <span className="font-mono">${credits.limit_remaining.toFixed(2)}</span>
+              </div>
+            )}
+            {credits.limit == null && credits.balance == null && (
+              <p className="text-[11px] text-muted-foreground/70">Esta chave nao tem limite configurado.</p>
+            )}
+          </div>
+        )}
       </Card>
 
       <div className="mt-4 rounded-xl border border-border bg-card/50 px-4 py-3 text-[11px] text-muted-foreground">

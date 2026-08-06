@@ -7,6 +7,7 @@ import {
   ChevronRight, X, Send, User,
 } from "lucide-react";
 import { ScreenFrame, ScreenHeader, Card } from "@/components/shell/ScreenFrame";
+import { OwnerGate } from "@/components/shell/OwnerGate";
 import { cn } from "@/lib/utils";
 
 const SETTINGS_KEY = "hokma.settings.v1";
@@ -177,6 +178,7 @@ export function CRMScreen() {
   const leadsByStatus = (status: LeadStatus) => leads.filter((l) => l.status === status);
 
   return (
+    <OwnerGate label="CRM">
     <ScreenFrame>
       <ScreenHeader title="CRM" subtitle="Leads do imoveischaves.com — Kanban" />
 
@@ -389,5 +391,6 @@ export function CRMScreen() {
         )}
       </AnimatePresence>
     </ScreenFrame>
+    </OwnerGate>
   );
 }
