@@ -2,7 +2,7 @@ const SETTINGS_KEY = "hokma.settings.v1";
 
 const DEFAULT_SETTINGS: Record<string, string> = {
   "Server URL": "https://app.imoveischaves.com", // troque pro seu server URL real
-  "HOK_TOKEN": "5fae643bbee6b44c3da66a9099524bf4b6e53cd966aa373fba8764e517c85591",  // edite direto aqui no servidor
+  "HOK_TOKEN": "", // informe seu token no Settings — nunca hardcode no bundle
 };
 
 export function ensureDefaultSettings() {
