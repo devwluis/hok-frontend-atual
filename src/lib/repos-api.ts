@@ -1,3 +1,14 @@
+const CONV_ID_KEY = "hokma.conversation_id";
+
+function getOrCreateConversationId(): string {
+  let convId = localStorage.getItem(CONV_ID_KEY);
+  if (!convId) {
+    convId = "conv_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem(CONV_ID_KEY, convId);
+  }
+  return convId;
+}
+
 const SETTINGS_KEY = "hokma.settings.v1";
 
 function readSettings(): { serverUrl: string; token: string } {
@@ -47,6 +58,7 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
   const url = serverUrl.replace(/\/$/, "") + path;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "X-Conversation-Id": getOrCreateConversationId(),
     ...(opts.headers as Record<string, string>),
   };
   if (token) headers["X-Hok-Token"] = token;

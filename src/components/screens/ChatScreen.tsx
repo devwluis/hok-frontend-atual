@@ -460,7 +460,7 @@ export function ChatScreen() {
         audioB64,
         audioMime: audioB64 ? audioMime : undefined,
         mode: chatMode,
-        onPendingAction: (pa) => { pendingActionRef.current = pa; setPendingAction(pa); },
+        onPendingAction: (pa) => { pendingActionRef.current = pa; setPendingAction(pa); setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, pendingAction: pa } : m)); },
         onEngineUsed: (eng) => {
           if (eng === "hermes" || eng === "claude_code") setResolvedEngine(eng);
         },
