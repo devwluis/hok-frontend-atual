@@ -1,4 +1,5 @@
 "use client";
+import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Globe, Bug, Send, Copy, Webhook, ChevronDown, ChevronUp, X, Image as ImageIcon, Paperclip, Mic, FileAudio, Sparkles, Brain } from "lucide-react";
@@ -184,13 +185,12 @@ function MarkdownView({ text }: { text: string }) {
   let listItems: React.ReactNode[] = [];
   const flushList = (s: string) => {
     if (listType && listItems.length) {
-      out.push(
-        React.createElement(
-          listType,
-          { key: `l-${s}` },
-          listItems.map((it, i) => React.createElement("li", { key: i }, it)),
-        ),
-      );
+      const items = listItems.map((it, i) => React.createElement("li", { key: i }, it));
+      if (listType === "ul") {
+        out.push(<ul key={`l-${s}`}>{items}</ul>);
+      } else {
+        out.push(<ol key={`l-${s}`}>{items}</ol>);
+      }
       listItems = [];
     }
     listType = null;
