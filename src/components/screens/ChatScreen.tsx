@@ -16,6 +16,36 @@ import { OwnerGate } from "@/components/shell/OwnerGate";
 // Unified settings key
 const SETTINGS_KEY = "hokma.settings.v1";
 const N8N_SETTINGS_KEY = "hokma.n8n.settings.v1";
+const CHAT_STATE_KEY = "hokma.chat.state.v1";
+
+type ChatState = {
+  conversationId: string | null;
+  drafts: Record<string, string>;
+  scrolls: Record<string, number>;
+};
+
+function readChatState(): ChatState {
+  try {
+    const raw = localStorage.getItem(CHAT_STATE_KEY);
+    if (!raw) return { conversationId: null, drafts: {}, scrolls: {} };
+    const s = JSON.parse(raw) as Partial<ChatState>;
+    return {
+      conversationId: s.conversationId ?? null,
+      drafts: s.drafts ?? {},
+      scrolls: s.scrolls ?? {},
+    };
+  } catch {
+    return { conversationId: null, drafts: {}, scrolls: {} };
+  }
+}
+
+function writeChatState(patch: Partial<ChatState>) {
+  try {
+    localStorage.setItem(CHAT_STATE_KEY, JSON.stringify({ ...readChatState(), ...patch }));
+  } catch {
+    /* ignora quota/erros */
+  }
+}
 
 type Msg = ChatMessage & {
   meta?: { ms: number; model?: string };
@@ -274,6 +304,9 @@ export function ChatScreen() {
 
   const taRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const skipAutoScrollRef = useRef(false);
+  const restoredStateRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const accRef = useRef<string>("");
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -349,7 +382,63 @@ export function ChatScreen() {
     setMessages(conv ? (conv.messages as Msg[]) : []);
   }, [conversationId]);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
+  // ── Persistência de estado (conversa ativa, rascunho e scroll por conversa) ──
+  useEffect(() => {
+    if (restoredStateRef.current) return;
+    restoredStateRef.current = true;
+    const saved = readChatState();
+    if (saved.conversationId && !conversationId && conversationsStore.get(saved.conversationId)) {
+      setConversationId(saved.conversationId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Restaura rascunho/scroll quando a conversa fica ativa
+  useEffect(() => {
+    if (!conversationId || !restoredStateRef.current) return;
+    const saved = readChatState();
+    if (saved.drafts[conversationId]) setInput(saved.drafts[conversationId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (conversationId) writeChatState({ conversationId });
+  }, [conversationId]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (conversationId) {
+        const s = readChatState();
+        writeChatState({ drafts: { ...s.drafts, [conversationId]: input } });
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [input, conversationId]);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el || !conversationId) return;
+    const ratio = el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight);
+    const s = readChatState();
+    writeChatState({ scrolls: { ...s.scrolls, [conversationId]: ratio } });
+  };
+
+  // Restaura a posição de scroll da conversa após as mensagens carregarem
+  useEffect(() => {
+    if (!conversationId) return;
+    const saved = readChatState();
+    const ratio = saved.scrolls[conversationId];
+    const el = scrollRef.current;
+    if (el && ratio !== undefined && ratio > 0 && ratio < 1) {
+      el.scrollTop = ratio * (el.scrollHeight - el.clientHeight);
+      skipAutoScrollRef.current = true;
+    }
+  }, [messages, conversationId]);
+
+  useEffect(() => {
+    if (skipAutoScrollRef.current) { skipAutoScrollRef.current = false; return; }
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
   useEffect(() => {
     const ta = taRef.current;
@@ -557,7 +646,7 @@ export function ChatScreen() {
     <OwnerGate label="Chat">
     <div className="flex h-full flex-col bg-background">
       {/* ── Messages ── */}
-      <div className="thin-scroll flex-1 overflow-y-auto px-4 py-4">
+      <div ref={scrollRef} onScroll={handleScroll} className="thin-scroll flex-1 overflow-y-auto px-4 py-4">
         {messages.length === 0 && !loading && (
           <div className="flex h-full items-center justify-center">
             <NuclearCore />
