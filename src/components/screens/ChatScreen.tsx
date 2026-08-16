@@ -58,28 +58,42 @@ function readN8NWebhook(): { webhookUrl: string; token: string } {
   }
 }
 
-function extractJsonBlock(text: string): string | null {
-  const m = text.match(/```json\s*([\s\S]*?)```/i);
-  return m ? m[1].trim() : null;
+type CodeFence = { lang: string; code: string };
+
+// Separa o texto entre fences ```lang ... ``` — blocos viram CodeBlock, resto vira texto puro
+function splitCodeFences(text: string): { text: string; fences: CodeFence[] } {
+  const fences: CodeFence[] = [];
+  const parts: string[] = [];
+  const re = /```([\w+#.-]*)\s*\n([\s\S]*?)```/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    parts.push(text.slice(last, m.index));
+    fences.push({ lang: m[1] || "code", code: m[2] });
+    last = m.index + m[0].length;
+  }
+  parts.push(text.slice(last));
+  return { text: parts.join(""), fences };
 }
 
-// ── JSON block inside assistant bubble ────────────────────────────────────────
-function JsonBlock({ json, onSendToWebhook }: { json: string; onSendToWebhook?: (j: string) => void }) {
+// ── Code block (fences ```lang) inside assistant bubble ───────────────────────
+function CodeBlock({ lang, code, onSendToWebhook }: { lang: string; code: string; onSendToWebhook?: (j: string) => void }) {
   const [copied, setCopied] = useState(false);
+  const isJson = lang.toLowerCase() === "json";
   return (
     <div className="mt-2 overflow-hidden rounded-xl border border-zinc-800 bg-[#0d1117]">
       <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">json</span>
+        <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">{lang}</span>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => { navigator.clipboard.writeText(json); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
+            onClick={() => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
             className="inline-flex items-center gap-1 rounded-md bg-zinc-800/80 px-2 py-1 text-[10px] font-medium text-zinc-200 hover:bg-zinc-700"
           >
-            <Copy className="h-3 w-3" /> {copied ? "Copiado" : "Copy JSON"}
+            <Copy className="h-3 w-3" /> {copied ? "Copiado" : "Copiar"}
           </button>
-          {onSendToWebhook && (
+          {isJson && onSendToWebhook && (
             <button
-              onClick={() => onSendToWebhook(json)}
+              onClick={() => onSendToWebhook(code)}
               className="inline-flex items-center gap-1 rounded-md bg-[color:var(--amber)]/90 px-2 py-1 text-[10px] font-semibold text-[color:var(--amber-foreground)] hover:opacity-90"
             >
               <Webhook className="h-3 w-3" /> Webhook
@@ -87,8 +101,8 @@ function JsonBlock({ json, onSendToWebhook }: { json: string; onSendToWebhook?: 
           )}
         </div>
       </div>
-      <pre className="thin-scroll max-h-72 overflow-auto px-3 py-2 font-mono text-[12px] leading-relaxed text-emerald-300">
-        {json}
+      <pre className={`thin-scroll max-h-72 overflow-auto px-3 py-2 font-mono text-[12px] leading-relaxed ${isJson ? "text-emerald-300" : "text-zinc-200"}`}>
+        {code}
       </pre>
     </div>
   );
@@ -107,8 +121,7 @@ function MessageBubble({
   onRejectPending?: () => void;
 }) {
   const isUser = msg.role === "user";
-  const jsonBlock = !isUser ? extractJsonBlock(msg.text) : null;
-  const bodyText = jsonBlock ? msg.text.replace(/```json[\s\S]*?```/i, "").trim() : msg.text;
+  const { text: bodyText, fences } = !isUser ? splitCodeFences(msg.text) : { text: msg.text, fences: [] };
   const modelInfo = !isUser && msg.meta?.model ? getModel(msg.meta.model) : null;
 
   return (
@@ -138,7 +151,9 @@ function MessageBubble({
           </div>
         )}
         {bodyText && <div className="whitespace-pre-wrap text-base leading-relaxed">{bodyText}</div>}
-        {jsonBlock && <JsonBlock json={jsonBlock} onSendToWebhook={onSendToWebhook} />}
+        {fences.map((f, i) => (
+          <CodeBlock key={i} lang={f.lang} code={f.code} onSendToWebhook={onSendToWebhook} />
+        ))}
         {!isUser && msg.pendingAction && (
           <div className="mt-2 border-t border-border/60 pt-2">
             {msg.pendingAction.action_type === "self_mod" && msg.pendingAction.diff_preview && (
