@@ -32,6 +32,10 @@
   --color-ring: var(--ring);
   --color-amber: var(--amber);
   --color-amber-foreground: var(--amber-foreground);
+  --color-amber-soft: var(--amber-soft);
+  --color-emerald: var(--emerald);
+  --color-emerald-foreground: var(--emerald-foreground);
+  --color-emerald-soft: var(--emerald-soft);
   --color-cyan-glow: var(--cyan-glow);
   --color-online: var(--online);
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -40,35 +44,39 @@
   --shadow-amber-glow: 0 0 0 3px rgb(245 166 35 / 0.1), 0 0 20px -2px rgb(245 166 35 / 0.4);
 }
 
-/* ── Light — capacete no dia ── */
+/* ── Light — fundo cinza neutro, paleta verde/âmbar harmonica ── */
 :root {
   --radius: 0.75rem;
-  --background: #f7f7f5;
-  --foreground: #111111;
+  --background: #F3F4F6;
+  --foreground: #111827;
   --card: #ffffff;
-  --card-foreground: #111111;
+  --card-foreground: #111827;
   --popover: #ffffff;
-  --popover-foreground: #111111;
-  --primary: #D4901A;
+  --popover-foreground: #111827;
+  --primary: #059669;
   --primary-foreground: #ffffff;
-  --secondary: #f0f0ee;
-  --secondary-foreground: #111111;
-  --muted: #f0f0ee;
-  --muted-foreground: #777777;
-  --accent: #ebebea;
-  --accent-foreground: #111111;
+  --secondary: #e5e7eb;
+  --secondary-foreground: #111827;
+  --muted: #e5e7eb;
+  --muted-foreground: #6b7280;
+  --accent: #e8eaee;
+  --accent-foreground: #111827;
   --destructive: #d32f2f;
   --destructive-foreground: #ffffff;
-  --border: #e0e0de;
-  --input: #e0e0de;
-  --ring: #D4901A;
-  --amber: #D4901A;
-  --amber-foreground: #111111;
+  --border: #d1d5db;
+  --input: #d1d5db;
+  --ring: #059669;
+  --emerald: #059669;            /* esmeralda #10B981 escurecido p/ AA no claro */
+  --emerald-foreground: #ffffff;
+  --emerald-soft: #d1fae5;       /* fundo esverdeado suave */
+  --amber: #B45309;              /* âmbar #F59E0B escurecido p/ AA no claro */
+  --amber-foreground: #ffffff;
+  --amber-soft: #fef3c7;         /* fundo âmbar suave */
   --cyan-glow: #0ea5e9;
-  --online: #16a34a;
+  --online: #059669;
 }
 
-/* ── Dark — capacete à noite ── */
+/* ── Dark — esmeralda e âmbar vibrantes como primarias ── */
 .dark {
   --background: #0d0d0d;
   --foreground: #f0f0ee;
@@ -76,23 +84,27 @@
   --card-foreground: #f0f0ee;
   --popover: #161616;
   --popover-foreground: #f0f0ee;
-  --primary: #F5A623;
+  --primary: #10B981;
   --primary-foreground: #0d0d0d;
   --secondary: #1e1e1e;
   --secondary-foreground: #f0f0ee;
   --muted: #1e1e1e;
-  --muted-foreground: #666666;
+  --muted-foreground: #9ca3af;
   --accent: #222222;
   --accent-foreground: #f0f0ee;
-  --destructive: #e53935;
-  --destructive-foreground: #ffffff;
-  --border: #282828;
+  --destructive: #f87171;
+  --destructive-foreground: #0d0d0d;
+  --border: #2b2b2b;
   --input: #1e1e1e;
-  --ring: #F5A623;
-  --amber: #F5A623;
+  --ring: #10B981;
+  --emerald: #34d399;            /* esmeralda claro, alto contraste no escuro */
+  --emerald-foreground: #0d0d0d;
+  --emerald-soft: rgba(16, 185, 129, 0.14);
+  --amber: #F59E0B;
   --amber-foreground: #0d0d0d;
+  --amber-soft: rgba(245, 158, 11, 0.14);
   --cyan-glow: #38bdf8;
-  --online: #22c55e;
+  --online: #34d399;
 }
 
 @layer base {
@@ -111,6 +123,89 @@
 .thin-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
 .thin-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
 .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ── Tipografia das mensagens: hierarquia visual (UX 16/08) ── */
+.markdown-body {
+  font-size: 15px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+.markdown-body h1,
+.markdown-body h2 {
+  margin: 14px 0 6px;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--emerald);
+}
+.markdown-body h3 {
+  margin: 12px 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--amber);
+}
+.markdown-body h4 {
+  margin: 10px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+  opacity: 0.92;
+}
+.markdown-body p { margin: 6px 0; }
+.markdown-body ul, .markdown-body ol { margin: 6px 0 6px 4px; padding-left: 20px; }
+.markdown-body li { margin: 2px 0; }
+.markdown-body li::marker { color: var(--emerald); }
+.markdown-body strong {
+  font-weight: 700;
+  color: var(--foreground);
+}
+.markdown-body em {
+  font-style: italic;
+  color: var(--muted-foreground);
+}
+.markdown-body code.inline-code {
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--emerald);
+  padding: 0.5px 5px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.markdown-body blockquote {
+  margin: 8px 0;
+  border-left: 3px solid var(--amber);
+  background: var(--amber-soft);
+  padding: 6px 12px;
+  border-radius: 0 8px 8px 0;
+  color: var(--foreground);
+}
+.markdown-body hr {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+.markdown-body table {
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.markdown-body th, .markdown-body td {
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+}
+.markdown-body th {
+  background: var(--secondary);
+  font-weight: 600;
+}
+
+/* Botão copiar em blocos de texto destacados (UX 16/08) */
+.copy-float-btn {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.group\/msg:hover .copy-float-btn { opacity: 1; }
 
 @keyframes spin-slow { to { transform: rotate(360deg); } }
 .animate-spin-slow { animation: spin-slow 6s linear infinite; }

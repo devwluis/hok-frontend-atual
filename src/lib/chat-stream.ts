@@ -157,6 +157,11 @@ export async function streamChat(opts: StreamOpts): Promise<string> {
     history: messages,
     model: selectedModel,
     stream: true,
+    // FIX 16/08 (auditoria UX): backend Go espera `webSearch` (camelCase,
+    // types.go ClientRequest). `web_search` (snake) era ignorado pelo
+    // decode do Go — o toggle de busca web ficava decorativo.
+    // Envia AMBOS por compatibilidade com clientes antigos do app interno.
+    webSearch: !!webSearch,
     web_search: !!webSearch,
     forceClaudeCode: !!forceClaudeCode,
     forceHermes: !!forceHermes,

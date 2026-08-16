@@ -17,6 +17,20 @@ import { OwnerGate } from "@/components/shell/OwnerGate";
 const SETTINGS_KEY = "hokma.settings.v1";
 const N8N_SETTINGS_KEY = "hokma.n8n.settings.v1";
 const CHAT_STATE_KEY = "hokma.chat.state.v1";
+const ENGINE_KEY = "hokma.engine.v1";
+
+// FIX 16/08 (UX): engine forçado (Claude Code/Hermes) persiste entre
+// sessões via localStorage — reler ao montar, salvar a cada troca.
+function readForcedEngine(): "auto" | "claude_code" | "hermes" {
+  try {
+    const v = localStorage.getItem(ENGINE_KEY);
+    if (v === "claude_code" || v === "hermes") return v;
+  } catch { /* ignore */ }
+  return "auto";
+}
+function writeForcedEngine(v: "auto" | "claude_code" | "hermes") {
+  try { localStorage.setItem(ENGINE_KEY, v); } catch { /* ignore */ }
+}
 
 type ChatState = {
   conversationId: string | null;
@@ -141,12 +155,76 @@ function CodeBlock({ lang, code, onSendToWebhook }: { lang: string; code: string
 // ── Texto longo colapsável (blocos de código ficam fora, intactos) ───────────
 const COLLAPSE_THRESHOLD = 700;
 
+// Inline markdown leve: `codigo`, **negrito**, *itálico*
+function renderInline(raw: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const segs = raw.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  segs.forEach((s, i) => {
+    if (!s) return;
+    if (s.startsWith("`") && s.endsWith("`")) {
+      parts.push(<code key={i} className="inline-code">{s.slice(1, -1)}</code>);
+    } else if (s.startsWith("**") && s.endsWith("**") && s.length > 4) {
+      parts.push(<strong key={i}>{s.slice(2, -2)}</strong>);
+    } else if (s.startsWith("*") && s.endsWith("*") && s.length > 2) {
+      parts.push(<em key={i}>{s.slice(1, -1)}</em>);
+    } else {
+      parts.push(<React.Fragment key={i}>{s}</React.Fragment>);
+    }
+  });
+  return <>{parts}</>;
+}
+
+// Markdown leve das respostas do Hok: títulos esmeralda, subtítulos âmbar,
+// listas com marcador esmeralda, citações com barra âmbar (paleta UX 16/08).
+function MarkdownView({ text }: { text: string }) {
+  const inlineMd = renderInline;
+  const lines = text.split("\n");
+  const out: React.ReactNode[] = [];
+  let listType: "ul" | "ol" | null = null;
+  let listItems: React.ReactNode[] = [];
+  const flushList = (s: string) => {
+    if (listType && listItems.length) {
+      out.push(
+        React.createElement(
+          listType,
+          { key: `l-${s}` },
+          listItems.map((it, i) => React.createElement("li", { key: i }, it)),
+        ),
+      );
+      listItems = [];
+    }
+    listType = null;
+  };
+  lines.forEach((line, idx) => {
+    const t = line.trim();
+    if (!t) { flushList(String(idx)); return; }
+    const m2 = t.match(/^(#{1,2})\s+(.*)$/);
+    const m3 = t.match(/^(#{3})\s+(.*)$/);
+    const m4 = t.match(/^(#{4,6})\s+(.*)$/);
+    if (m2) { flushList(String(idx)); out.push(<h2 key={idx}>{inlineMd(m2[2])}</h2>); return; }
+    if (m3) { flushList(String(idx)); out.push(<h3 key={idx}>{inlineMd(m3[2])}</h3>); return; }
+    if (m4) { flushList(String(idx)); out.push(<h4 key={idx}>{inlineMd(m4[2])}</h4>); return; }
+    if (/^(---|\*\*\*|___)\s*$/.test(t)) { flushList(String(idx)); out.push(<hr key={idx} />); return; }
+    const ul = t.match(/^[-*•]\s+(.*)$/);
+    const ol = t.match(/^\d+[.)]\s+(.*)$/);
+    if (ul) { if (listType !== "ul") { flushList("u" + idx); listType = "ul"; } listItems.push(inlineMd(ul[1])); return; }
+    if (ol) { if (listType !== "ol") { flushList("o" + idx); listType = "ol"; } listItems.push(inlineMd(ol[1])); return; }
+    if (t.startsWith("> ")) { flushList(String(idx)); out.push(<blockquote key={idx}>{inlineMd(t.slice(2))}</blockquote>); return; }
+    flushList(String(idx));
+    out.push(<p key={idx}>{inlineMd(t)}</p>);
+  });
+  flushList("end");
+  return <div className="markdown-body">{out}</div>;
+}
+
 function CollapsibleBody({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const long = text.length > COLLAPSE_THRESHOLD;
   return (
     <div>
-      <div className={`whitespace-pre-wrap text-base leading-relaxed ${long && !open ? "line-clamp-8" : ""}`}>{text}</div>
+      <div className={`whitespace-pre-wrap ${long && !open ? "line-clamp-8" : ""}`}>
+        <MarkdownView text={text} />
+      </div>
       {long && (
         <button
           onClick={() => setOpen(!open)}
@@ -182,21 +260,36 @@ function MessageBubble({
   const isUser = msg.role === "user";
   const { text: bodyText, fences } = !isUser ? splitCodeFences(msg.text) : { text: msg.text, fences: [] };
   const modelInfo = !isUser && msg.meta?.model ? getModel(msg.meta.model) : null;
+  const [copiedBody, setCopiedBody] = useState(false);
+  const copyBody = () => {
+    navigator.clipboard.writeText(bodyText + (fences.length ? "\n\n" + fences.map((f) => "```" + f.lang + "\n" + f.code + "\n```").join("\n\n") : ""));
+    setCopiedBody(true);
+    setTimeout(() => setCopiedBody(false), 1200);
+  };
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}
+      className={cn("group/msg flex w-full", isUser ? "justify-end" : "justify-start")}
     >
       <div
         className={cn(
-          "relative max-w-[85%] px-4 py-3 text-sm shadow-sm",
+          "relative max-w-[85%] px-4 py-3 text-[15px] leading-relaxed shadow-sm",
           isUser
-            ? "rounded-[20px] rounded-br-md bg-[color:var(--amber)] text-[color:var(--amber-foreground)]"
+            ? "rounded-[20px] rounded-br-md bg-[color:var(--emerald)] text-[color:var(--emerald-foreground)]"
             : "rounded-[20px] rounded-bl-md border border-border bg-card text-card-foreground",
         )}
       >
+        {!isUser && (bodyText || fences.length > 0) && (
+          <button
+            onClick={copyBody}
+            className="copy-float-btn absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-md bg-[color:var(--secondary)] px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-[color:var(--accent)]"
+            title="Copiar resposta"
+          >
+            <Copy className="h-3 w-3" /> {copiedBody ? "Copiado" : "Copiar"}
+          </button>
+        )}
         {msg.imagePreview && (
           <img
             src={msg.imagePreview}
@@ -288,7 +381,7 @@ export function ChatScreen() {
   const [selectedModel, setSelectedModel] = useState("auto");
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [n8nMode, setN8nMode] = useState<N8NModeState>("off");
-  const [forcedEngine, setForcedEngine] = useState<"auto" | "claude_code" | "hermes">("auto");
+  const [forcedEngine, setForcedEngine] = useState<"auto" | "claude_code" | "hermes">(() => readForcedEngine());
   const [resolvedEngine, setResolvedEngine] = useState<"claude_code" | "hermes" | null>(null);
   const [showEnginePicker, setShowEnginePicker] = useState(false);
   const [chatMode, setChatMode] = useState<"build" | "plan">("build");
@@ -307,6 +400,7 @@ export function ChatScreen() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const skipAutoScrollRef = useRef(false);
   const restoredStateRef = useRef(false);
+  const loadingRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const accRef = useRef<string>("");
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -400,6 +494,12 @@ export function ChatScreen() {
     if (saved.drafts[conversationId]) setInput(saved.drafts[conversationId]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
+
+  // Persiste engine forçado (localStorage) — Claude Code/Hermes sobrevivem
+  // ao fechar/abrir o app (UX 16/08 item 5)
+  useEffect(() => {
+    writeForcedEngine(forcedEngine);
+  }, [forcedEngine]);
 
   useEffect(() => {
     if (conversationId) writeChatState({ conversationId });
@@ -510,7 +610,17 @@ export function ChatScreen() {
 
   const send = async () => {
     const t = input.trim();
-    if ((!t && attachments.length === 0) || loading) return;
+    // FIX 16/08 (double-send): loadingRef e SINCRONO — o state `loading`
+    // so atualiza apos re-render, entao dois submits no mesmo tick
+    // (Enter+clique, double-tap) passavam o guard antigo e enviavam a
+    // mesma mensagem 2-3x. Watchdog de 3min libera o lock se o stream
+    // nunca retornar.
+    if ((!t && attachments.length === 0) || loadingRef.current || loading) return;
+    loadingRef.current = true;
+    const sendWatchdog = setTimeout(() => {
+      loadingRef.current = false;
+      setLoading(false);
+    }, 180_000);
 
     setError(null);
     let id = conversationId;
@@ -633,6 +743,8 @@ export function ChatScreen() {
         }
       }
     } finally {
+      clearTimeout(sendWatchdog);
+      loadingRef.current = false;
       setLoading(false);
       abortRef.current = null;
     }
