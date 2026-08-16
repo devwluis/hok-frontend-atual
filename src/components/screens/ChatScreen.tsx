@@ -137,7 +137,7 @@ function MessageBubble({
             🎵 {msg.audioName}
           </div>
         )}
-        {bodyText && <div className="whitespace-pre-wrap leading-relaxed">{bodyText}</div>}
+        {bodyText && <div className="whitespace-pre-wrap text-base leading-relaxed">{bodyText}</div>}
         {jsonBlock && <JsonBlock json={jsonBlock} onSendToWebhook={onSendToWebhook} />}
         {!isUser && msg.pendingAction && (
           <div className="mt-2 border-t border-border/60 pt-2">
@@ -710,7 +710,7 @@ export function ChatScreen() {
             
             placeholder="Insira sua instrução, Sr.…"
             rows={1}
-            className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            className="flex-1 resize-none bg-transparent text-base outline-none placeholder:text-muted-foreground"
             style={{ maxHeight: 120 }}
           />
           <div className="flex items-center gap-1 pb-0.5">
