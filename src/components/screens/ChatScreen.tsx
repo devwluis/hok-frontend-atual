@@ -108,6 +108,35 @@ function CodeBlock({ lang, code, onSendToWebhook }: { lang: string; code: string
   );
 }
 
+// ── Texto longo colapsável (blocos de código ficam fora, intactos) ───────────
+const COLLAPSE_THRESHOLD = 700;
+
+function CollapsibleBody({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > COLLAPSE_THRESHOLD;
+  return (
+    <div>
+      <div className={`whitespace-pre-wrap text-base leading-relaxed ${long && !open ? "line-clamp-8" : ""}`}>{text}</div>
+      {long && (
+        <button
+          onClick={() => setOpen(!open)}
+          className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-[color:var(--amber)] hover:opacity-80"
+        >
+          {open ? (
+            <>
+              <ChevronUp className="h-3.5 w-3.5" /> Ver menos
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-3.5 w-3.5" /> Ver mais
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Single message bubble ─────────────────────────────────────────────────────
 function MessageBubble({
   msg,
@@ -150,7 +179,7 @@ function MessageBubble({
             🎵 {msg.audioName}
           </div>
         )}
-        {bodyText && <div className="whitespace-pre-wrap text-base leading-relaxed">{bodyText}</div>}
+        {bodyText && <CollapsibleBody text={bodyText} />}
         {fences.map((f, i) => (
           <CodeBlock key={i} lang={f.lang} code={f.code} onSendToWebhook={onSendToWebhook} />
         ))}
