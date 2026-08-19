@@ -209,3 +209,8 @@
 
 @keyframes spin-slow { to { transform: rotate(360deg); } }
 .animate-spin-slow { animation: spin-slow 6s linear infinite; }
+
+/* Botão console dos seletores IA/ENGINE (UX v5) */
+.hok-console-button {
+  transition: transform 0.15s, border-color 0.15s, background-color 0.15s, color 0.15s;
+}

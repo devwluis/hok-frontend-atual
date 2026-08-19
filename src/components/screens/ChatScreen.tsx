@@ -2,14 +2,14 @@
 import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Globe, Bug, Send, Copy, Webhook, ChevronDown, ChevronUp, X, Image as ImageIcon, Paperclip, Mic, FileAudio, Sparkles, Brain } from "lucide-react";
+import { Globe, Bug, Send, Copy, Webhook, ChevronDown, ChevronUp, X, Image as ImageIcon, Paperclip, Mic, FileAudio, Sparkles, Brain, Plus } from "lucide-react";
 import { SiN8N } from "react-icons/si";
 import { ElectricCore } from "@/components/chat/ElectricCore";
 import { NuclearCore } from "@/components/chat/NuclearCore";
 import { cn } from "@/lib/utils";
 import { conversationsStore, type ChatMessage } from "@/lib/conversations-store";
 import { useAppState } from "@/hooks/use-app-state";
-import { getModels, getModel, getFreeModels, getPaidModels, getZenModels, invalidateModelsCache, FALLBACK_MODELS, type HokModel } from "@/lib/hok-models";
+import { getModel, getFreeModels, getPaidModels, getZenModels, invalidateModelsCache, FALLBACK_MODELS, type HokModel } from "@/lib/hok-models";
 import { type PendingAction } from "@/lib/chat-stream";
 import { detectN8NIntent, N8N_SYSTEM_PROMPT, type N8NModeState } from "@/lib/n8n-expert";
 import { OwnerGate } from "@/components/shell/OwnerGate";
@@ -21,16 +21,25 @@ const N8N_SETTINGS_KEY = "hokma.n8n.settings.v1";
 const CHAT_STATE_KEY = "hokma.chat.state.v1";
 const ENGINE_KEY = "hokma.engine.v1";
 
-// FIX 16/08 (UX): engine forçado (Claude Code/Hermes) persiste entre
-// sessões via localStorage — reler ao montar, salvar a cada troca.
-function readForcedEngine(): "auto" | "claude_code" | "hermes" {
+// FIX 16/08 (UX): engine forçado persiste entre sessões via localStorage —
+// reler ao montar, salvar a cada troca. IDs v5: auto | hok | claude | opencode | hermes.
+type EngineId = "auto" | "hok" | "claude" | "opencode" | "hermes";
+const ENGINE_OPTIONS: { id: EngineId; label: string; sub?: string; Icon?: (p: { className?: string }) => React.ReactNode }[] = [
+  { id: "auto", label: "Automático", sub: "recomendado", Icon: AutomaticIcon },
+  { id: "hok", label: "Hok Orquestrador", sub: "padrão" },
+  { id: "claude", label: "Claude Code", Icon: ClaudeCodeIcon },
+  { id: "opencode", label: "OpenCode", Icon: OpenCodeIcon },
+  { id: "hermes", label: "Hermes", Icon: HermesIcon },
+];
+function readForcedEngine(): EngineId {
   try {
-    const v = localStorage.getItem(ENGINE_KEY);
-    if (v === "claude_code" || v === "hermes") return v;
+    const v = localStorage.getItem(ENGINE_KEY) as EngineId | "claude_code";
+    if (v === "claude_code") return "claude";
+    if (ENGINE_OPTIONS.some((o) => o.id === v)) return v;
   } catch { /* ignore */ }
   return "auto";
 }
-function writeForcedEngine(v: "auto" | "claude_code" | "hermes" | "opencode") {
+function writeForcedEngine(v: EngineId) {
   try { localStorage.setItem(ENGINE_KEY, v); } catch { /* ignore */ }
 }
 
@@ -345,49 +354,61 @@ function MessageBubble({
   );
 }
 
-// ── Model picker strip ────────────────────────────────────────────────────────
-function ModelPicker({ selected, onSelect }: { selected: string; onSelect: (id: string) => void }) {
-  const [models, setModels] = useState<HokModel[]>(FALLBACK_MODELS);
-  const [loading, setLoading] = useState(true);
-  
-  useEffect(() => {
-    getModels().then(models => {
-      setModels(models);
-      setLoading(false);
-    }).catch(() => {
-      setLoading(false);
-    });
-  }, []);
-  
-  if (loading) {
-    return (
-      <div className="flex gap-1.5 overflow-x-auto pb-0.5 thin-scroll">
-        <div className="flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-          Carregando modelos...
-        </div>
-      </div>
-    );
+// ── Catálogo de IA (UX v5): busca + agrupado por provedor + tag FREE ──────────
+function ModelCatalogList({ modelsList, search, activeModelId, onSelect }: {
+  modelsList: { paid: HokModel[]; free: HokModel[]; zen: HokModel[] };
+  search: string;
+  activeModelId: string;
+  onSelect: (id: string) => void;
+}) {
+  const q = search.trim().toLowerCase();
+  const match = (m: HokModel) => !q || m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q);
+  const groups: { header: string; badge?: string; badgeCls?: string; models: HokModel[] }[] = [];
+  const paid = modelsList.paid.filter(match);
+  if (paid.length) groups.push({ header: "PAGO", badge: "PAGO", badgeCls: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", models: paid });
+  const freeByProvider = new Map<string, HokModel[]>();
+  for (const m of modelsList.free) {
+    if (!match(m)) continue;
+    const arr = freeByProvider.get(m.provider) ?? [];
+    arr.push(m);
+    freeByProvider.set(m.provider, arr);
   }
-  
+  for (const [provider, models] of freeByProvider) {
+    groups.push({ header: provider, badge: "FREE", badgeCls: "bg-[color:var(--emerald)]/15 text-[color:var(--emerald)]", models });
+  }
+  const zen = modelsList.zen.filter(match);
+  if (zen.length) groups.push({ header: "OpenCode Zen", badge: "ZEN", badgeCls: "bg-[#a78bfa]/15 text-[#a78bfa]", models: zen });
+  if (groups.length === 0) {
+    return <div className="px-3 py-2 text-[10px] font-mono text-muted-foreground">Nenhum modelo encontrado.</div>;
+  }
   return (
-    <div className="flex gap-1.5 overflow-x-auto pb-0.5 thin-scroll">
-      {models.map((m) => (
-        <button
-          key={m.id}
-          onClick={() => onSelect(m.id)}
-          title={m.description}
-          className={cn(
-            "flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
-            selected === m.id
-              ? "border-transparent text-black"
-              : "border-border bg-card text-muted-foreground hover:text-foreground",
-          )}
-          style={selected === m.id ? { background: m.color } : undefined}
-        >
-          <span className="text-[10px]">{m.label}</span>
-        </button>
+    <>
+      {groups.map((g) => (
+        <div key={g.header}>
+          <div className="flex items-center gap-1 px-3 py-1 text-[9px] font-bold tracking-widest text-muted-foreground">
+            {g.header}
+            {g.badge && <span className={cn("rounded-full px-1.5 py-0.5 text-[8px] font-bold", g.badgeCls)}>{g.badge}</span>}
+          </div>
+          {g.models.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => onSelect(m.id)}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
+                activeModelId === m.id ? "text-[color:var(--cyan-glow)]" : "text-foreground",
+              )}
+            >
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.color }} />
+              <span className="truncate">{m.label}</span>
+              {m.free && (
+                <span className="ml-auto rounded-full bg-[color:var(--emerald)]/15 px-1.5 py-0.5 text-[8px] font-bold text-[color:var(--emerald)]">FREE</span>
+              )}
+            </button>
+          ))}
+        </div>
       ))}
-    </div>
+    </>
   );
 }
 
@@ -402,31 +423,37 @@ export function ChatScreen() {
   const [error, setError] = useState<string | null>(null);
   const [webhookResult, setWebhookResult] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState("auto");
-  const [showModelPicker, setShowModelPicker] = useState(false);
   const [n8nMode, setN8nMode] = useState<N8NModeState>("off");
-  const [forcedEngine, setForcedEngine] = useState<"auto" | "claude_code" | "hermes" | "opencode">(() => readForcedEngine());
+  const [forcedEngine, setForcedEngine] = useState<EngineId>(() => readForcedEngine());
   const [resolvedEngine, setResolvedEngine] = useState<"claude_code" | "hermes" | null>(null);
   const [showEnginePicker, setShowEnginePicker] = useState(false);
   const [showModelsPicker, setShowModelsPicker] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
+  const [modelMenuError, setModelMenuError] = useState<string | null>(null);
+  const [modelMenuRetry, setModelMenuRetry] = useState(0);
   const [modelsList, setModelsList] = useState<{ paid: HokModel[]; free: HokModel[]; zen: HokModel[] } | null>(null);
+  const [modelSearch, setModelSearch] = useState("");
   const [activeModelId, setActiveModelId] = useState<string>("auto");
   const [modelToast, setModelToast] = useState<string | null>(null);
   const lastToastModelRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (showModelsPicker && !modelsList) {
+      setModelMenuError(null);
       Promise.all([getPaidModels(), getFreeModels(), getZenModels()])
         .then(([paid, free, zen]) => {
           setModelsList({ paid, free, zen });
         })
         .catch(() => {
+          setModelMenuError("Não foi possível carregar o catálogo de modelos.");
           const paid = FALLBACK_MODELS.filter((x) => !x.free && x.provider !== "OpenCode Zen");
           const free = FALLBACK_MODELS.filter((x) => x.free);
           const zen = FALLBACK_MODELS.filter((x) => x.provider === "OpenCode Zen");
           setModelsList({ paid, free, zen });
         });
     }
-  }, [showModelsPicker, modelsList]);
+  }, [showModelsPicker, modelsList, modelMenuRetry]);
 
   const selectModel = async (modelId: string) => {
     try {
@@ -440,9 +467,9 @@ export function ChatScreen() {
       setActiveModelId(modelId);
       invalidateModelsCache();
     } catch { /* ignore */ }
+    setSelectedModel(modelId);
     setShowModelsPicker(false);
   };
-  const [chatMode, setChatMode] = useState<"build" | "plan">("build");
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const pendingActionRef = useRef<PendingAction | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -525,6 +552,7 @@ export function ChatScreen() {
   };
 
   const activeModel = getModel(selectedModel);
+  const engineLabel = ENGINE_OPTIONS.find((o) => o.id === forcedEngine)?.label ?? "Automático";
 
   // Load messages when conversation changes
   useEffect(() => {
@@ -752,15 +780,15 @@ export function ChatScreen() {
         token,
         conversationId,
         webSearch,
-        forceClaudeCode: forcedEngine === "claude_code",
+        forceClaudeCode: forcedEngine === "claude",
         forceHermes: forcedEngine === "hermes",
+        forceOpenCode: forcedEngine === "opencode",
         selectedModel,
         messages: outMessages,
         imageB64,
         imageMime: imageB64 ? imageMime : undefined,
         audioB64,
         audioMime: audioB64 ? audioMime : undefined,
-        mode: chatMode,
         onPendingAction: (pa) => { pendingActionRef.current = pa; setPendingAction(pa); setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, pendingAction: pa } : m)); },
         onEngineUsed: (eng) => {
           if (eng === "hermes" || eng === "claude_code") setResolvedEngine(eng);
@@ -856,9 +884,9 @@ export function ChatScreen() {
             >
               <div className="rounded-[20px] rounded-bl-md border border-border bg-card px-4">
                 <ElectricCore
-                  label={(forcedEngine === "hermes" || (forcedEngine === "auto" && resolvedEngine === "hermes")) ? <><b>Hermes</b> processando…</> : (forcedEngine === "claude_code" || (forcedEngine === "auto" && resolvedEngine === "claude_code")) ? <><b>Claude Code</b> processando…</> : "Processando requisição…"}
+                  label={(forcedEngine === "hermes" || (forcedEngine === "auto" && resolvedEngine === "hermes")) ? <><b>Hermes</b> processando…</> : (forcedEngine === "claude" || (forcedEngine === "auto" && resolvedEngine === "claude_code")) ? <><b>Claude Code</b> processando…</> : "Processando requisição…"}
                   modelName={activeModel.id !== "auto" ? activeModel.label : undefined}
-                  engine={forcedEngine !== "auto" ? forcedEngine : (resolvedEngine ?? "auto")}
+                  engine={forcedEngine !== "auto" ? (forcedEngine === "hok" ? "auto" : forcedEngine === "claude" ? "claude_code" : forcedEngine) : (resolvedEngine ?? "auto")}
                 />
               </div>
             </motion.div>
@@ -942,21 +970,7 @@ export function ChatScreen() {
       <input ref={audioInputRef} type="file" accept="audio/*" multiple className="hidden" onChange={handleAudioChange} />
 
       {/* ── Input area ── */}
-      <div className="border-t border-border bg-card/80 px-4 pb-[calc(env(safe-area-inset-bottom)+80px)] pt-3 backdrop-blur-xl">
-
-        {/* Model picker (collapsible) */}
-        <AnimatePresence>
-          {showModelPicker && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden mb-2"
-            >
-              <ModelPicker selected={selectedModel} onSelect={(id) => { setSelectedModel(id); setShowModelPicker(false); }} />
-            </motion.div>
-          )}
-        </AnimatePresence>
+      <div className="hok-composer relative border-t border-border bg-background/90 px-4 pb-[calc(env(safe-area-inset-bottom)+80px)] pt-3 backdrop-blur-xl">
 
         {/* Attachment preview strip */}
         <AnimatePresence>
@@ -996,27 +1010,271 @@ export function ChatScreen() {
           )}
         </AnimatePresence>
 
-        {/* Textarea row */}
-        <div className="flex items-end gap-2 rounded-2xl border border-border bg-background px-3 py-2 focus-within:border-[color:var(--amber)] focus-within:shadow-[var(--shadow-amber-glow)] transition-all">
-          {/* Attachment buttons — left side */}
-          <div className="flex items-center gap-0.5 pb-0.5">
+        {/* Row 1: IA + ENGINE selectors (UX v5) */}
+        <div className="mb-2 flex gap-2">
+          {/* IA — button-model-selector */}
+          <div className="relative min-w-0 flex-1">
             <button
-              onClick={() => photoInputRef.current?.click()}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-[color:var(--amber)]"
-              aria-label="Foto"
-              title="Anexar foto"
+              type="button"
+              onClick={() => { setShowModelsPicker((v) => !v); setShowEnginePicker(false); }}
+              className="hok-console-button flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-secondary px-2.5 py-2 text-left hover:border-[color:var(--amber)]/60"
+              aria-expanded={showModelsPicker}
+              aria-controls="model-menu"
+              data-testid="button-model-selector"
             >
-              <ImageIcon className="h-4 w-4" />
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="shrink-0 font-mono text-[10px] tracking-[0.08em] text-muted-foreground">⚡ IA</span>
+                <span className="truncate text-[12px] font-semibold" style={{ color: activeModel.color }}>{activeModel.label}</span>
+              </span>
+              {showModelsPicker ? <ChevronUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
             </button>
+            <AnimatePresence>
+              {showModelsPicker && (
+                <motion.div
+                  id="model-menu"
+                  initial={{ opacity: 0, y: 5, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 5, scale: 0.98 }}
+                  className="absolute bottom-[calc(100%+8px)] left-0 z-40 w-[min(340px,calc(100vw-20px))]"
+                >
+                  <div className="thin-scroll max-h-[min(320px,50dvh)] overflow-y-auto rounded-2xl border border-border bg-popover p-1.5 shadow-[0_16px_34px_rgb(0_0_0/0.45)]">
+                    <div className="flex items-center justify-between px-2 py-1.5">
+                      <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Catálogo de IA</span>
+                      <div className="flex items-center gap-1.5">
+                        {!modelsList && <span className="font-mono text-[9px] text-[color:var(--amber)]">sincronizando</span>}
+                        <button
+                          type="button"
+                          onClick={() => setShowModelsPicker(false)}
+                          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[color:var(--amber)]/10 hover:text-[color:var(--amber)]"
+                          aria-label="Fechar catálogo"
+                          data-testid="button-model-picker-close"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mb-1 px-1">
+                      <input
+                        value={modelSearch}
+                        onChange={(e) => setModelSearch(e.target.value)}
+                        placeholder="Buscar modelo por nome..."
+                        className="w-full rounded-xl border border-border bg-background px-2.5 py-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-[color:var(--amber)]"
+                        data-testid="input-model-search"
+                      />
+                    </div>
+                    {modelMenuError && (
+                      <div className="mb-1 rounded-xl border border-red-500/20 bg-red-500/5 px-2.5 py-2 text-[10px] text-red-300">
+                        <div>{modelMenuError}</div>
+                        <button
+                          type="button"
+                          onClick={() => { setModelMenuError(null); setModelsList(null); setModelMenuRetry((v) => v + 1); }}
+                          className="mt-1 font-semibold text-[color:var(--amber)] hover:underline"
+                        >
+                          Tentar novamente
+                        </button>
+                      </div>
+                    )}
+                    {!modelsList ? (
+                      <div className="space-y-1 px-1 pb-1" aria-label="Carregando modelos">
+                        <div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" />
+                        <div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" />
+                        <div className="h-8 animate-pulse rounded-lg bg-white/[0.04]" />
+                      </div>
+                    ) : (
+                      <ModelCatalogList modelsList={modelsList} search={modelSearch} activeModelId={activeModelId} onSelect={selectModel} />
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            {showModelsPicker && <div className="fixed inset-0 z-30" onClick={() => setShowModelsPicker(false)} aria-hidden="true" />}
+          </div>
+
+          {/* ENGINE — button-engine-selector */}
+          <div className="relative min-w-0 flex-1">
             <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              aria-label="Arquivo"
-              title="Anexar arquivo"
+              type="button"
+              onClick={() => { setShowEnginePicker((v) => !v); setShowModelsPicker(false); }}
+              className={cn(
+                "hok-console-button flex w-full items-center justify-between gap-2 rounded-xl border bg-secondary px-2.5 py-2 text-left hover:border-[color:var(--amber)]/60",
+                forcedEngine !== "auto" ? "border-rose-500/40" : "border-border",
+              )}
+              aria-expanded={showEnginePicker}
+              aria-controls="engine-menu"
+              data-testid="button-engine-selector"
             >
-              <Paperclip className="h-4 w-4" />
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="shrink-0 font-mono text-[10px] tracking-[0.08em] text-muted-foreground">◈ ENGINE</span>
+                <span className={cn("truncate text-[12px] font-semibold", forcedEngine !== "auto" ? "text-rose-300" : "text-[color:var(--amber)]")}>{engineLabel}</span>
+              </span>
+              {showEnginePicker ? <ChevronUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
             </button>
+            <AnimatePresence>
+              {showEnginePicker && (
+                <motion.div
+                  id="engine-menu"
+                  initial={{ opacity: 0, y: 5, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 5, scale: 0.98 }}
+                  className="absolute bottom-[calc(100%+8px)] right-0 z-40 w-[min(250px,calc(100vw-20px))] rounded-2xl border border-border bg-popover p-1.5 shadow-[0_16px_34px_rgb(0_0_0/0.45)]"
+                >
+                  <div className="flex items-center justify-between px-2 py-1.5">
+                    <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Motor de processamento</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowEnginePicker(false)}
+                      className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[color:var(--amber)]/10 hover:text-[color:var(--amber)]"
+                      aria-label="Fechar seletor de engine"
+                      data-testid="button-mode-picker-close"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {ENGINE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => { setForcedEngine(opt.id); setShowEnginePicker(false); }}
+                      className={cn(
+                        "flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-[11px] text-left transition-colors hover:bg-[color:var(--amber)]/10",
+                        forcedEngine === opt.id ? "text-[color:var(--amber)]" : "text-foreground",
+                      )}
+                    >
+                      <span className="flex items-center gap-2 font-mono">
+                        {opt.Icon && <opt.Icon className="h-3.5 w-3.5" />}
+                        {opt.label}
+                        {opt.sub && <span className="text-[9px] text-muted-foreground">({opt.sub})</span>}
+                      </span>
+                      {forcedEngine === opt.id && <span className="text-[color:var(--amber)]">✔</span>}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+
+        {/* Row 2: + menu / textarea / tools */}
+        <div className="flex items-end gap-2 rounded-2xl border bg-popover px-2.5 py-2 transition-all focus-within:border-[color:var(--amber)] focus-within:shadow-[var(--shadow-amber-glow)]">
+          {/* + menu */}
+          <div className="relative pb-0.5">
             <button
+              type="button"
+              onClick={() => setShowAttachMenu((v) => !v)}
+              className="hok-console-button flex h-9 w-9 items-center justify-center rounded-full border border-border bg-secondary text-[color:var(--amber)] hover:border-[color:var(--amber)]/60 hover:bg-[color:var(--amber)]/10"
+              aria-label="Adicionar anexo"
+              aria-expanded={showAttachMenu}
+              data-testid="button-open-attachments"
+            >
+              <Plus className={cn("h-4 w-4 transition-transform", showAttachMenu && "rotate-45")} />
+            </button>
+            <AnimatePresence>
+              {showAttachMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: 5, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 5, scale: 0.98 }}
+                  className="absolute bottom-[calc(100%+8px)] left-0 z-40 w-[190px] rounded-2xl border border-border bg-popover p-1.5 shadow-[0_16px_34px_rgb(0_0_0/0.45)]"
+                >
+                  <div className="flex items-center justify-end px-1 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowAttachMenu(false)}
+                      className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[color:var(--amber)]/10 hover:text-[color:var(--amber)]"
+                      aria-label="Fechar menu de anexos"
+                      data-testid="button-plus-menu-close"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => { photoInputRef.current?.click(); setShowAttachMenu(false); }}
+                      className="flex flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-[10px] text-muted-foreground hover:bg-[color:var(--amber)]/10 hover:text-[color:var(--amber)]"
+                      data-testid="button-attach-photo"
+                    >
+                      <ImageIcon className="h-4 w-4" />
+                      Foto
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false); }}
+                      className="flex flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-[10px] text-muted-foreground hover:bg-[color:var(--amber)]/10 hover:text-[color:var(--amber)]"
+                      data-testid="button-attach-file"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                      Arquivo
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            {showAttachMenu && <div className="fixed inset-0 z-30" onClick={() => setShowAttachMenu(false)} aria-hidden="true" />}
+          </div>
+
+          <div className="mb-1 h-5 w-px shrink-0 bg-border" />
+
+          <textarea
+            ref={taRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Insira sua instrução, Sr.…"
+            rows={1}
+            className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            style={{ maxHeight: 120 }}
+          />
+          <div className="flex items-center gap-1 pb-0.5">
+            {/* Tools: Busca web + Debug */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowToolsMenu((v) => !v)}
+                className={cn(
+                  "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+                  showToolsMenu || webSearch
+                    ? "bg-[color:var(--amber)]/15 text-[color:var(--amber)]"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+                aria-label="Ferramentas"
+              >
+                <Globe className="h-4 w-4" />
+              </button>
+              <AnimatePresence>
+                {showToolsMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 5, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 5, scale: 0.98 }}
+                    className="absolute bottom-[calc(100%+8px)] right-0 z-40 w-[200px] rounded-2xl border border-border bg-popover p-1.5 shadow-[0_16px_34px_rgb(0_0_0/0.45)]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setWebSearch((v) => !v)}
+                      className="flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-[11px] text-foreground transition-colors hover:bg-[color:var(--amber)]/10"
+                      data-testid="button-web-search"
+                    >
+                      <span className="flex items-center gap-2"><Globe className="h-3.5 w-3.5" /> Busca web</span>
+                      <span className={cn("h-1.5 w-1.5 rounded-full", webSearch ? "bg-emerald-400" : "bg-muted-foreground/40")} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDebugMode((v) => !v)}
+                      className="flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-[11px] text-foreground transition-colors hover:bg-[color:var(--amber)]/10"
+                      data-testid="button-debug-mode"
+                    >
+                      <span className="flex items-center gap-2"><Bug className="h-3.5 w-3.5" /> Debug</span>
+                      <span className={cn("h-1.5 w-1.5 rounded-full", debugMode ? "bg-red-400" : "bg-muted-foreground/40")} />
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              {showToolsMenu && <div className="fixed inset-0 z-30" onClick={() => setShowToolsMenu(false)} aria-hidden="true" />}
+            </div>
+
+            {/* Mic */}
+            <button
+              type="button"
               onClick={() => (isRecording ? stopRecording() : startRecording())}
               className={cn(
                 "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
@@ -1024,49 +1282,11 @@ export function ChatScreen() {
                   ? "bg-red-500/15 text-red-500 animate-pulse"
                   : "text-muted-foreground hover:bg-accent hover:text-[color:var(--amber)]",
               )}
-              aria-label={isRecording ? "Parar gravação" : "Gravar áudio"}
-              title={isRecording ? "Parar gravação" : "Gravar áudio"}
+              aria-label="Anexar áudio pelo microfone"
+              title="Anexar áudio"
+              data-testid="button-microphone"
             >
               <Mic className="h-4 w-4" />
-            </button>
-          </div>
-
-          {/* Divider */}
-          <div className="mb-1 h-5 w-px shrink-0 bg-border" />
-
-          <textarea
-            ref={taRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            
-            placeholder="Insira sua instrução, Sr.…"
-            rows={1}
-            className="flex-1 resize-none bg-transparent text-base outline-none placeholder:text-muted-foreground"
-            style={{ maxHeight: 120 }}
-          />
-          <div className="flex items-center gap-1 pb-0.5">
-            {/* Web search toggle */}
-            <button
-              onClick={() => setWebSearch((v) => !v)}
-              className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
-                webSearch ? "bg-[color:var(--amber)]/15 text-[color:var(--amber)]" : "text-muted-foreground hover:bg-accent hover:text-foreground",
-              )}
-              aria-label="Busca web"
-            >
-              <Globe className="h-4 w-4" />
-            </button>
-
-            {/* Debug toggle */}
-            <button
-              onClick={() => setDebugMode((v) => !v)}
-              className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
-                debugMode ? "bg-red-500/15 text-red-500" : "text-muted-foreground hover:bg-accent hover:text-foreground",
-              )}
-              aria-label="Debug"
-            >
-              <Bug className="h-4 w-4" />
             </button>
 
             {/* Send / Stop */}
@@ -1075,6 +1295,7 @@ export function ChatScreen() {
                 onClick={stop}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-destructive/15 text-destructive hover:bg-destructive/25"
                 aria-label="Parar"
+                data-testid="button-stop"
               >
                 <span className="h-3 w-3 rounded-sm bg-destructive" />
               </button>
@@ -1089,199 +1310,12 @@ export function ChatScreen() {
                     : "bg-muted text-muted-foreground",
                 )}
                 aria-label="Enviar"
+                data-testid="button-send"
               >
                 <Send className="h-4 w-4" />
               </button>
             )}
           </div>
-        </div>
-
-        {/* Bottom bar: model selector trigger + hint */}
-        <div className="mt-1.5 flex items-center gap-2 px-1">
-          <button
-            onClick={() => setShowModelPicker((v) => !v)}
-            className="flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium transition-colors hover:border-[color:var(--amber)]/40"
-            style={{ color: activeModel.color }}
-          >
-            <span className="font-mono">{activeModel.label}</span>
-            {showModelPicker ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-          </button>
-
-          {/* N8N mode toggle */}
-          <div className="flex items-center overflow-hidden rounded-full border border-border bg-card text-[10px] font-mono font-medium">
-            <button
-              onClick={() => setChatMode("plan")}
-              className={cn("px-2 py-0.5 transition-colors", chatMode === "plan" ? "bg-[color:var(--amber)] text-[color:var(--amber-foreground)]" : "text-muted-foreground hover:text-foreground")}
-            >Planejar</button>
-            <button
-              onClick={() => setChatMode("build")}
-              className={cn("px-2 py-0.5 transition-colors", chatMode === "build" ? "bg-[color:var(--amber)] text-[color:var(--amber-foreground)]" : "text-muted-foreground hover:text-foreground")}
-            >Build</button>
-          </div>
-          <button
-            onClick={() => setN8nMode((v) => v === "off" ? "manual" : "off")}
-            title={n8nActive ? "Desativar Modo N8N" : "Ativar Modo N8N Expert"}
-            className={cn(
-              "flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-mono font-medium transition-all",
-              n8nActive
-                ? "border-rose-500/40 bg-rose-500/10 text-rose-500"
-                : "border-border bg-card text-muted-foreground hover:border-rose-500/30 hover:text-rose-400",
-            )}
-          >
-            <SiN8N className="h-3 w-3" />
-            N8N
-          </button>
-          <div className="relative">
-            <button
-              onClick={() => setShowEnginePicker((v) => !v)}
-              title="Forçar engine"
-              className={cn(
-                "flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-mono font-medium transition-all",
-                forcedEngine !== "auto"
-                  ? "border-[color:var(--amber)]/40 bg-[color:var(--amber)]/10 text-[color:var(--amber)]"
-                  : "border-border bg-card text-muted-foreground hover:border-[color:var(--amber)]/30 hover:text-[color:var(--amber)]",
-              )}
-            >
-              {forcedEngine === "claude_code" && <ClaudeCodeIcon />}
-              {forcedEngine === "hermes" && <HermesIcon />}
-              {forcedEngine === "opencode" && <OpenCodeIcon />}
-              {forcedEngine === "auto" && <AutomaticIcon />}
-              <span>
-                {forcedEngine === "claude_code" ? "Claude Code" : forcedEngine === "hermes" ? "Hermes" : forcedEngine === "opencode" ? "OpenCode" : "Forçar engine"}
-              </span>
-              {showEnginePicker ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-            </button>
-            {showEnginePicker && (
-              <div className="absolute bottom-full left-0 z-20 mb-1 w-40 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
-                <button
-                  onClick={() => { setForcedEngine("auto"); setShowEnginePicker(false); }}
-                  className={cn(
-                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
-                    forcedEngine === "auto" ? "text-[color:var(--amber)]" : "text-foreground",
-                  )}
-                >
-                  <AutomaticIcon className="h-4 w-4" />
-                  Automático (recomendado)
-                </button>
-                <button
-                  onClick={() => { setForcedEngine("claude_code"); setShowEnginePicker(false); }}
-                  className={cn(
-                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
-                    forcedEngine === "claude_code" ? "text-[color:var(--amber)]" : "text-foreground",
-                  )}
-                >
-                  <ClaudeCodeIcon className="h-4 w-4" />
-                  Claude Code
-                </button>
-                <button
-                  onClick={() => { setForcedEngine("hermes"); setShowEnginePicker(false); }}
-                  className={cn(
-                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
-                    forcedEngine === "hermes" ? "text-[color:var(--amber)]" : "text-foreground",
-                  )}
-                >
-                  <HermesIcon className="h-4 w-4" />
-                  Hermes
-                </button>
-                <button
-                  onClick={() => { setForcedEngine("opencode"); setShowEnginePicker(false); }}
-                  className={cn(
-                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
-                    forcedEngine === "opencode" ? "text-[color:var(--amber)]" : "text-foreground",
-                  )}
-                >
-                  <OpenCodeIcon className="h-4 w-4" />
-                  OpenCode
-                </button>
-              </div>
-        )}
-          </div>
-          <div className="relative">
-            <button
-              onClick={() => setShowModelsPicker((v) => !v)}
-              title="Modelos disponíveis"
-              className={cn(
-                "flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-mono font-medium transition-all",
-                activeModelId !== "auto"
-                  ? "border-[color:var(--cyan-glow)]/40 bg-[color:var(--cyan-glow)]/10 text-[color:var(--cyan-glow)]"
-                  : "border-border bg-card text-muted-foreground hover:border-[color:var(--cyan-glow)]/30 hover:text-[color:var(--cyan-glow)]",
-              )}
-            >
-              <Sparkles className="h-3 w-3" />
-              <span>Modelos</span>
-              {showModelsPicker ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-            </button>
-            {showModelsPicker && (
-              <div className="absolute bottom-full left-0 z-20 mb-1 w-64 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
-                <div className="max-h-72 overflow-y-auto p-1">
-                  {!modelsList ? (
-                    <div className="px-3 py-2 text-[11px] font-mono text-muted-foreground">Carregando modelos…</div>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-1 px-3 py-1 text-[9px] font-bold tracking-widest text-muted-foreground">
-                        PAGOS
-                        <span className="rounded-full bg-[color:var(--amber)]/15 px-1.5 py-0.5 text-[8px] font-bold text-[color:var(--amber)]">PAGO</span>
-                      </div>
-                      {modelsList.paid.length === 0 && <div className="px-3 py-1 text-[10px] text-muted-foreground">Nenhum modelo pago.</div>}
-                      {modelsList.paid.map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => selectModel(m.id)}
-                          className={cn(
-                            "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
-                            activeModelId === m.id ? "text-[color:var(--cyan-glow)]" : "text-foreground",
-                          )}
-                        >
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.color }} />
-                          <span className="truncate">{m.label}</span>
-                        </button>
-                      ))}
-                      <div className="mt-1 flex items-center gap-1 border-t border-border px-3 py-1 text-[9px] font-bold tracking-widest text-muted-foreground">
-                        FREE
-                        <span className="rounded-full bg-[color:var(--emerald)]/15 px-1.5 py-0.5 text-[8px] font-bold text-[color:var(--emerald)]">FREE</span>
-                      </div>
-                      {modelsList.free.map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => selectModel(m.id)}
-                          className={cn(
-                            "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
-                            activeModelId === m.id ? "text-[color:var(--cyan-glow)]" : "text-foreground",
-                          )}
-                        >
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.color }} />
-                          <span className="truncate">{m.label}</span>
-                        </button>
-                      ))}
-                      <div className="mt-1 flex items-center gap-1 border-t border-border px-3 py-1 text-[9px] font-bold tracking-widest text-muted-foreground">
-                        ZEN
-                        <span className="rounded-full bg-[#a78bfa]/15 px-1.5 py-0.5 text-[8px] font-bold text-[#a78bfa]">ZEN</span>
-                      </div>
-                      {modelsList.zen.map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => selectModel(m.id)}
-                          className={cn(
-                            "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
-                            activeModelId === m.id ? "text-[color:var(--cyan-glow)]" : "text-foreground",
-                          )}
-                        >
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.color }} />
-                          <span className="truncate">{m.label}</span>
-                        </button>
-                      ))}
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-          {webSearch && (
-            <span className="text-[10px] font-mono text-[color:var(--cyan-glow)]">web:on</span>
-          )}
-          {debugMode && (
-            <span className="text-[10px] font-mono text-red-500">debug:on</span>
-          )}
         </div>
       </div>
     </div>
