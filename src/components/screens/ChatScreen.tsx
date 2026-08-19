@@ -20,6 +20,32 @@ const SETTINGS_KEY = "hokma.settings.v1";
 const N8N_SETTINGS_KEY = "hokma.n8n.settings.v1";
 const CHAT_STATE_KEY = "hokma.chat.state.v1";
 const ENGINE_KEY = "hokma.engine.v1";
+const MODEL_SELECT_KEY = "hokma.model.selected.v1";
+
+type ModelSelection = { engine: EngineId; modelId: string; updatedAt: string };
+
+// Persistência unificada da seleção de IA/modelo (PROBLEMA 1 — sessão).
+// Chave dedicada "hokma.model.selected.v1"; a chave antiga "hokma.engine.v1"
+// serve de fallback/migração quando a nova ainda não existe.
+function readModelSelection(): ModelSelection | null {
+  try {
+    const raw = localStorage.getItem(MODEL_SELECT_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Partial<ModelSelection>;
+    if (typeof p.modelId !== "string") return null;
+    return {
+      engine: ENGINE_OPTIONS.some((o) => o.id === p.engine) ? (p.engine as EngineId) : "auto",
+      modelId: p.modelId,
+      updatedAt: typeof p.updatedAt === "string" ? p.updatedAt : "",
+    };
+  } catch { /* ignore */ }
+  return null;
+}
+function writeModelSelection(engine: EngineId, modelId: string) {
+  try {
+    localStorage.setItem(MODEL_SELECT_KEY, JSON.stringify({ engine, modelId, updatedAt: new Date().toISOString() }));
+  } catch { /* ignore */ }
+}
 
 // FIX 16/08 (UX): engine forçado persiste entre sessões via localStorage —
 // reler ao montar, salvar a cada troca. IDs v5: auto | hok | claude | opencode | hermes.
@@ -430,9 +456,9 @@ export function ChatScreen() {
   const [debugMode, setDebugMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [webhookResult, setWebhookResult] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState("auto");
+  const [selectedModel, setSelectedModel] = useState<string>(() => readModelSelection()?.modelId ?? "auto");
   const [n8nMode, setN8nMode] = useState<N8NModeState>("off");
-  const [forcedEngine, setForcedEngine] = useState<EngineId>(() => readForcedEngine());
+  const [forcedEngine, setForcedEngine] = useState<EngineId>(() => readModelSelection()?.engine ?? readForcedEngine());
   const [resolvedEngine, setResolvedEngine] = useState<"claude_code" | "hermes" | null>(null);
   const [showEnginePicker, setShowEnginePicker] = useState(false);
   const [showModelsPicker, setShowModelsPicker] = useState(false);
@@ -604,11 +630,13 @@ export function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
-  // Persiste engine forçado (localStorage) — Claude Code/Hermes sobrevivem
-  // ao fechar/abrir o app (UX 16/08 item 5)
+  // Persiste engine forçado + modelo selecionado (localStorage) — sobrevivem
+  // ao fechar/reabrir o app. Gravação imediata (sem debounce): troca de
+  // modelo/engine é evento raro e deve persistir na hora.
   useEffect(() => {
     writeForcedEngine(forcedEngine);
-  }, [forcedEngine]);
+    writeModelSelection(forcedEngine, selectedModel);
+  }, [forcedEngine, selectedModel]);
 
   useEffect(() => {
     if (conversationId) writeChatState({ conversationId });

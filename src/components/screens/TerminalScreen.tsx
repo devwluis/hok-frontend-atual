@@ -6,6 +6,51 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
 const SETTINGS_KEY = "hokma.settings.v1";
+const TERMINAL_STATE_KEY = "hokma.terminal.state.v1";
+const HISTORY_MAX = 200;
+
+type TerminalState = { activeSessionId: string; history: string[]; updatedAt: string };
+
+function readTerminalState(): TerminalState | null {
+  try {
+    const raw = localStorage.getItem(TERMINAL_STATE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Partial<TerminalState>;
+    if (!Array.isArray(p.history)) return null;
+    return {
+      activeSessionId: typeof p.activeSessionId === "string" ? p.activeSessionId : "pty-1",
+      history: p.history.filter((l): l is string => typeof l === "string").slice(-HISTORY_MAX),
+      updatedAt: typeof p.updatedAt === "string" ? p.updatedAt : "",
+    };
+  } catch { /* ignore */ }
+  return null;
+}
+
+function writeTerminalState(activeSessionId: string, history: string[]) {
+  try {
+    localStorage.setItem(TERMINAL_STATE_KEY, JSON.stringify({
+      activeSessionId,
+      history: history.slice(-HISTORY_MAX),
+      updatedAt: new Date().toISOString(),
+    }));
+  } catch { /* ignore */ }
+}
+
+// Serializa as últimas HISTORY_MAX linhas visíveis do buffer do xterm
+function snapshotTerminalLines(term: Terminal): string[] {
+  try {
+    const buf = term.buffer.active;
+    const n = buf.length;
+    const start = Math.max(0, n - HISTORY_MAX);
+    const lines: string[] = [];
+    for (let y = start; y < n; y++) {
+      const t = buf.getLine(y)?.translateToString(true);
+      if (t !== undefined) lines.push(t);
+    }
+    return lines;
+  } catch { /* ignore */ }
+  return [];
+}
 
 function readSettings(): { serverUrl: string; token: string } {
   try {
@@ -133,6 +178,21 @@ export function TerminalScreen() {
 
     term.onData((data) => writeToShell(data));
 
+    // Restaura a última sessão (histórico visível) antes de conectar —
+    // o usuário vê o terminal exatamente como deixou.
+    const saved = readTerminalState();
+    if (saved && saved.history.length > 0) {
+      term.write(saved.history.join("\r\n") + "\r\n");
+    }
+
+    // Snapshot incremental a cada 2s (não depende de unload da página,
+    // que pode não disparar ao fechar a aba em mobile).
+    const saveTimer = setInterval(() => {
+      const t = termRef.current;
+      if (!t) return;
+      writeTerminalState("pty-1", snapshotTerminalLines(t));
+    }, 2000);
+
     const onResize = () => {
       try {
         fit.fit();
@@ -148,6 +208,9 @@ export function TerminalScreen() {
 
     connect();
     return () => {
+      clearInterval(saveTimer);
+      const t = termRef.current;
+      if (t) writeTerminalState("pty-1", snapshotTerminalLines(t)); // save final no unmount
       ro.disconnect();
       teardown();
       term.dispose();
