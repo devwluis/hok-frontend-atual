@@ -31,13 +31,13 @@ const ENGINE_OPTIONS: { id: EngineId; label: string; sub?: string; Icon?: (p: { 
   { id: "opencode", label: "OpenCode Terminal" },
   { id: "hermes", label: "Hermes" },
 ];
-// Fonte característica de cada engine (CSS em index.css)
-const ENGINE_FONT: Record<EngineId, string> = {
+// Estilo de marca de cada engine (guia branding Hok OS, CSS em index.css)
+const ENGINE_BRAND: Record<EngineId, string> = {
   auto: "",
-  hok: "engine-font-hok",
-  claude: "engine-font-claude",
-  opencode: "engine-font-opencode",
-  hermes: "engine-font-hermes",
+  hok: "engine-brand-hok",
+  claude: "engine-brand-claude",
+  opencode: "engine-brand-opencode",
+  hermes: "engine-brand-hermes",
 };
 function readForcedEngine(): EngineId {
   try {
@@ -1128,7 +1128,11 @@ export function ChatScreen() {
             >
               <span className="flex min-w-0 items-center gap-2">
                 <span className="shrink-0 font-mono text-[10px] tracking-[0.08em] text-muted-foreground">◈ ENGINE</span>
-                <span className={cn("truncate text-[12px] font-semibold", ENGINE_FONT[forcedEngine] || (forcedEngine === "auto" ? "text-[color:var(--amber)]" : "text-rose-300"))}>{engineLabel}</span>
+                <span className={cn("truncate", ENGINE_BRAND[forcedEngine] || (forcedEngine === "auto" && "text-[12px] font-semibold text-[color:var(--amber)]"))}>
+                {forcedEngine === "hok" ? (
+                  <><span className="hok-h">Hok</span><span className="hok-orq"> Orquestrador</span></>
+                ) : engineLabel}
+              </span>
               </span>
               {showEnginePicker ? <ChevronUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
             </button>
@@ -1163,9 +1167,11 @@ export function ChatScreen() {
                         forcedEngine === opt.id ? "text-[color:var(--amber)]" : "text-foreground",
                       )}
                     >
-                      <span className={cn("flex items-center gap-2", ENGINE_FONT[opt.id], opt.id === "auto" && "font-mono")}>
+                      <span className={cn("flex items-center gap-2", ENGINE_BRAND[opt.id], opt.id === "auto" && "font-mono text-[11px]")}>
                         {opt.Icon && <opt.Icon className="h-3.5 w-3.5 shrink-0" />}
-                        {opt.label}
+                        {opt.id === "hok" ? (
+                          <><span className="hok-h">Hok</span><span className="hok-orq"> Orquestrador</span></>
+                        ) : opt.label}
                         {opt.sub && <span className="text-[9px] text-muted-foreground">({opt.sub})</span>}
                       </span>
                       {forcedEngine === opt.id && <span className="text-[color:var(--amber)]">✔</span>}

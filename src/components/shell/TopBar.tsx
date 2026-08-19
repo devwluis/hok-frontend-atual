@@ -36,9 +36,8 @@ export function TopBar() {
           whileHover={{ scale: 1.1, transition: { duration: 0.3 } }}
           transition={{ type: "spring", stiffness: 260, damping: 18 }}
         />
-        <div className="flex flex-col leading-none">
-          <span className="text-sm font-bold tracking-widest text-[color:var(--amber)]">H.O.K.</span>
-          <span className="text-[9px] font-mono tracking-wider text-muted-foreground uppercase">Dev · N8N · Automação</span>
+        <div className="hok-title hok-title--compact">
+          <span className="hok">HOK</span><span className="orquestrador">-ORQUESTRADOR</span>
         </div>
       </div>
 

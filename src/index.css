@@ -1,4 +1,29 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Fira+Code:wght@500;600;700&display=swap');
+/* ── Fontes de marca (Google Fonts, hospedadas localmente) ── */
+@font-face {
+  font-family: 'PressStart2P';
+  src: url('/assets/fonts/PressStart2P-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'VT323';
+  src: url('/assets/fonts/VT323-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Silkscreen';
+  src: url('/assets/fonts/Silkscreen-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'PoppinsExtraBoldItalic';
+  src: url('/assets/fonts/Poppins-ExtraBoldItalic.ttf') format('truetype');
+  font-weight: 800;
+  font-style: italic;
+  font-display: swap;
+}
 @import 'tailwindcss' source(none);
 @source "../src";
 @import 'tw-animate-css';
@@ -211,46 +236,107 @@
 @keyframes spin-slow { to { transform: rotate(360deg); } }
 .animate-spin-slow { animation: spin-slow 6s linear infinite; }
 
-/* ── Tipografia dos motores de processamento (fonte original de cada marca) ── */
-.engine-font-hok {
-  font-family: "Fira Code", "Cascadia Code", ui-monospace, "SF Mono", Consolas, monospace;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #E5C07B;
+/* ── Logo Hok-Orquestrador (branding) ── */
+.hok-title {
+  font-family: 'PoppinsExtraBoldItalic', 'Poppins', 'Montserrat', sans-serif;
+  font-style: italic;
+  font-weight: 800;
+  font-size: 22px;
+  background-color: #000000;
+  border-radius: 20px;
+  padding: 12px 20px;
+  display: inline-block;
+  white-space: nowrap;
+  line-height: 1;
 }
-.engine-font-claude {
-  font-family: ui-monospace, "SF Mono", "Menlo", Consolas, monospace;
-  font-weight: 600;
+.hok-title .hok { color: #F5A623; }
+.hok-title .orquestrador { color: #FFFFFF; }
+.hok-title--compact {
+  font-size: 15px;
+  padding: 8px 14px;
+  border-radius: 14px;
+}
+
+/* ── Títulos de marca (guia branding Hok OS) ── */
+.hermes-title {
+  font-family: 'PressStart2P', monospace;
+  font-size: 18px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #FFD400 0%, #C97A2E 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: #FFD400;
+  background-color: #000;
+  padding: 16px;
+}
+.opencode-title {
+  font-family: 'VT323', 'Silkscreen', monospace;
+  font-size: 26px;
+  letter-spacing: 0.5px;
+  background: linear-gradient(180deg, #4A4A4A 0%, #C4C4C4 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: #C4C4C4;
+  background-color: #000;
+  padding: 16px;
+}
+.opencode-title .accent { color: #E8714A; -webkit-text-fill-color: #E8714A; }
+.claudecode-title {
+  font-family: 'PressStart2P', monospace;
+  font-size: 18px;
+  letter-spacing: 1px;
+  color: #E8714A;
+  text-shadow: 2px 2px 0 #8C3D1E;
+  background-color: #0A0A0A;
+  padding: 16px;
+}
+
+/* Variantes compactas para o seletor de engine (sem fundo/padding) */
+.engine-brand { line-height: 1.2; }
+.engine-brand-hermes {
+  font-family: 'PressStart2P', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #FFD400 0%, #C97A2E 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: #FFD400;
+}
+.engine-brand-opencode {
+  font-family: 'VT323', 'Silkscreen', monospace;
+  font-size: 17px;
+  letter-spacing: 0.5px;
+  background: linear-gradient(180deg, #4A4A4A 0%, #C4C4C4 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: #C4C4C4;
+}
+.engine-brand-claude {
+  font-family: 'PressStart2P', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #E8714A;
+  text-shadow: 1px 1px 0 #8C3D1E;
+}
+.engine-brand-hok {
+  font-family: 'PoppinsExtraBoldItalic', 'Poppins', 'Montserrat', sans-serif;
+  font-style: italic;
+  font-weight: 800;
+  font-size: 13px;
   letter-spacing: 0.01em;
-  color: #D97757;
-  background: linear-gradient(135deg, #f87171, #d97757, #fbbf24, #34d399, #60a5fa, #818cf8, #a78bfa);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
-.engine-font-hermes {
-  font-family: ui-monospace, "SF Mono", "Menlo", Consolas, monospace;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #22d3ee;
-}
-.engine-font-opencode {
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, "SF Mono", Consolas, monospace;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #fab283;
-  background: linear-gradient(135deg, #fab283, #9d7cd8);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
+.engine-brand-hok .hok-h { color: #F5A623; }
+.engine-brand-hok .hok-orq { color: #FFFFFF; }
 @supports not (-webkit-background-clip: text) {
-  .engine-font-claude,
-  .engine-font-opencode {
-    -webkit-text-fill-color: currentColor;
-  }
-  .engine-font-claude { color: #D97757; }
-  .engine-font-opencode { color: #fab283; }
+  .hermes-title, .engine-brand-hermes { color: #FFD400; -webkit-text-fill-color: currentColor; }
+  .opencode-title, .engine-brand-opencode { color: #C4C4C4; -webkit-text-fill-color: currentColor; }
 }
 
 /* Botão console dos seletores IA/ENGINE (UX v5) */

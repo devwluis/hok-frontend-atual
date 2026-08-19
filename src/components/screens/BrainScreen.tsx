@@ -11,7 +11,7 @@ export function BrainScreen() {
   return (
     <ScreenFrame noPad>
       <div className="px-4 pt-4 pb-3">
-        <ScreenHeader title="Memory &amp; Codex" subtitle="Conhecimento persistente da Hokmá." />
+        <ScreenHeader title="Memory &amp; Codex" subtitle="Conhecimento persistente do Hok-Orquestrador." />
         <div className="flex gap-2 rounded-2xl border border-border bg-card p-1">
           {(["memory", "codex"] as const).map((t) => (
             <button
