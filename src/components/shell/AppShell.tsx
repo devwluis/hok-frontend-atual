@@ -10,6 +10,7 @@ import { ChatScreen } from "@/components/screens/ChatScreen";
 import { TerminalScreen } from "@/components/screens/TerminalScreen";
 import { N8NScreen } from "@/components/screens/N8NScreen";
 import { BrainScreen } from "@/components/screens/BrainScreen";
+import { ModelsScreen } from "@/components/screens/ModelsScreen";
 import { SettingsScreen } from "@/components/screens/SettingsScreen";
 import { SessionScreen } from "@/components/screens/SessionScreen";
 import { AgentScreen } from "@/components/screens/AgentScreen";
@@ -28,6 +29,7 @@ const SCREENS: Record<string, { render: () => ReactNode }> = {
   terminal: { render: () => <TerminalScreen /> },
   n8n: { render: () => <N8NScreen /> },
   brain: { render: () => <BrainScreen /> },
+  models: { render: () => <ModelsScreen /> },
   settings: { render: () => <SettingsScreen /> },
   session: { render: () => <SessionScreen /> },
   agent: { render: () => <AgentScreen /> },

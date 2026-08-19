@@ -3,12 +3,21 @@ import { motion, useAnimationFrame } from "framer-motion";
 import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-export type CoreEngine = "auto" | "hermes" | "claude_code";
+export type CoreEngine = "auto" | "hermes" | "claude_code" | "opencode";
 
 const ENGINE_COLOR: Record<CoreEngine, string> = {
-  auto: "#e0a72e",        // âmbar HOK — ainda não classificado / modo automático
-  hermes: "#2fa66a",      // verde — automação/memória
-  claude_code: "#e8632a", // laranja — técnico
+  auto: "#f5b942",        // âmbar neutro — Automático
+  hermes: "#a78bfa",      // roxo — Hermes
+  claude_code: "#e8632a", // laranja — técnico (mantido)
+  opencode: "#34d399",    // verde-esmeralda — OpenCode
+};
+
+// Glow suave por engine (halo/drop-shadow)
+const ENGINE_GLOW: Record<CoreEngine, string> = {
+  auto: "#f5b942",
+  hermes: "#ddd6fe",
+  claude_code: "#e8632a",
+  opencode: "#a7f3d0",
 };
 
 /* ── Spoke dot animado ── */
@@ -82,7 +91,7 @@ function MicroArcs({ color }: { color: string }) {
 }
 
 /* ── Ícone Núcleo (48×48 SVG) ── */
-function NucleusIcon({ color }: { color: string }) {
+function NucleusIcon({ color, glow }: { color: string; glow: string }) {
   const spokes = [0, 45, 90, 135, 180, 225, 270, 315];
   return (
     <svg width={48} height={48} viewBox="0 0 48 48" className="overflow-visible">
@@ -114,7 +123,7 @@ function NucleusIcon({ color }: { color: string }) {
       {/* Núcleo central — esfera */}
       <motion.circle cx={24} cy={24} r={5}
         fill={color}
-        style={{ filter: `drop-shadow(0 0 6px ${color})` }}
+        style={{ filter: `drop-shadow(0 0 6px ${glow})` }}
         animate={{ r: [4.5, 5.8, 4.5] }}
         transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
       />
@@ -139,6 +148,7 @@ export function ElectricCore({
   engine?: CoreEngine;
 }) {
   const color = ENGINE_COLOR[engine];
+  const glow = ENGINE_GLOW[engine];
   return (
     <motion.div
       className="flex items-center gap-3 py-3"
@@ -148,7 +158,7 @@ export function ElectricCore({
     >
       {/* Ícone */}
       <div className="shrink-0">
-        <NucleusIcon color={color} />
+        <NucleusIcon color={color} glow={glow} />
       </div>
 
       {/* Texto */}

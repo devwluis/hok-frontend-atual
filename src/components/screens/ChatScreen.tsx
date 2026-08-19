@@ -9,10 +9,11 @@ import { NuclearCore } from "@/components/chat/NuclearCore";
 import { cn } from "@/lib/utils";
 import { conversationsStore, type ChatMessage } from "@/lib/conversations-store";
 import { useAppState } from "@/hooks/use-app-state";
-import { HOK_MODELS, getModel } from "@/lib/hok-models";
+import { getModels, getModel, getFreeModels, getPaidModels, getZenModels, invalidateModelsCache, FALLBACK_MODELS, type HokModel } from "@/lib/hok-models";
 import { type PendingAction } from "@/lib/chat-stream";
 import { detectN8NIntent, N8N_SYSTEM_PROMPT, type N8NModeState } from "@/lib/n8n-expert";
 import { OwnerGate } from "@/components/shell/OwnerGate";
+import { ClaudeCodeIcon, OpenCodeIcon, HermesIcon, AutomaticIcon } from "@/components/chat/EngineIcons";
 
 // Unified settings key
 const SETTINGS_KEY = "hokma.settings.v1";
@@ -29,7 +30,7 @@ function readForcedEngine(): "auto" | "claude_code" | "hermes" {
   } catch { /* ignore */ }
   return "auto";
 }
-function writeForcedEngine(v: "auto" | "claude_code" | "hermes") {
+function writeForcedEngine(v: "auto" | "claude_code" | "hermes" | "opencode") {
   try { localStorage.setItem(ENGINE_KEY, v); } catch { /* ignore */ }
 }
 
@@ -346,9 +347,31 @@ function MessageBubble({
 
 // ── Model picker strip ────────────────────────────────────────────────────────
 function ModelPicker({ selected, onSelect }: { selected: string; onSelect: (id: string) => void }) {
+  const [models, setModels] = useState<HokModel[]>(FALLBACK_MODELS);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    getModels().then(models => {
+      setModels(models);
+      setLoading(false);
+    }).catch(() => {
+      setLoading(false);
+    });
+  }, []);
+  
+  if (loading) {
+    return (
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5 thin-scroll">
+        <div className="flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+          Carregando modelos...
+        </div>
+      </div>
+    );
+  }
+  
   return (
     <div className="flex gap-1.5 overflow-x-auto pb-0.5 thin-scroll">
-      {HOK_MODELS.map((m) => (
+      {models.map((m) => (
         <button
           key={m.id}
           onClick={() => onSelect(m.id)}
@@ -381,9 +404,44 @@ export function ChatScreen() {
   const [selectedModel, setSelectedModel] = useState("auto");
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [n8nMode, setN8nMode] = useState<N8NModeState>("off");
-  const [forcedEngine, setForcedEngine] = useState<"auto" | "claude_code" | "hermes">(() => readForcedEngine());
+  const [forcedEngine, setForcedEngine] = useState<"auto" | "claude_code" | "hermes" | "opencode">(() => readForcedEngine());
   const [resolvedEngine, setResolvedEngine] = useState<"claude_code" | "hermes" | null>(null);
   const [showEnginePicker, setShowEnginePicker] = useState(false);
+  const [showModelsPicker, setShowModelsPicker] = useState(false);
+  const [modelsList, setModelsList] = useState<{ paid: HokModel[]; free: HokModel[]; zen: HokModel[] } | null>(null);
+  const [activeModelId, setActiveModelId] = useState<string>("auto");
+  const [modelToast, setModelToast] = useState<string | null>(null);
+  const lastToastModelRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (showModelsPicker && !modelsList) {
+      Promise.all([getPaidModels(), getFreeModels(), getZenModels()])
+        .then(([paid, free, zen]) => {
+          setModelsList({ paid, free, zen });
+        })
+        .catch(() => {
+          const paid = FALLBACK_MODELS.filter((x) => !x.free && x.provider !== "OpenCode Zen");
+          const free = FALLBACK_MODELS.filter((x) => x.free);
+          const zen = FALLBACK_MODELS.filter((x) => x.provider === "OpenCode Zen");
+          setModelsList({ paid, free, zen });
+        });
+    }
+  }, [showModelsPicker, modelsList]);
+
+  const selectModel = async (modelId: string) => {
+    try {
+      const { serverUrl, token } = readSettings();
+      if (!serverUrl || !token) return;
+      await fetch(`${serverUrl}/models/select`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Hok-Token": token },
+        body: JSON.stringify({ model: modelId }),
+      });
+      setActiveModelId(modelId);
+      invalidateModelsCache();
+    } catch { /* ignore */ }
+    setShowModelsPicker(false);
+  };
   const [chatMode, setChatMode] = useState<"build" | "plan">("build");
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const pendingActionRef = useRef<PendingAction | null>(null);
@@ -707,6 +765,18 @@ export function ChatScreen() {
         onEngineUsed: (eng) => {
           if (eng === "hermes" || eng === "claude_code") setResolvedEngine(eng);
         },
+        onModelUsed: (mu) => {
+          if (!mu || mu === "auto") return;
+          setActiveModelId((prev) => {
+            if (mu === prev) return prev;
+            if (lastToastModelRef.current !== mu) {
+              lastToastModelRef.current = mu;
+              setModelToast(`Modelo trocado automaticamente para ${mu} — ${prev} estava indisponível`);
+              setTimeout(() => setModelToast(null), 6000);
+            }
+            return mu;
+          });
+        },
         signal: abortRef.current.signal,
         onToken: (delta) => {
           accRef.current += delta;
@@ -796,6 +866,22 @@ export function ChatScreen() {
         </div>
         <div ref={endRef} />
       </div>
+
+      {/* ── Model swap toast ── */}
+      <AnimatePresence>
+        {modelToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="mx-4 mb-2 flex items-center gap-2 rounded-xl border border-[color:var(--cyan-glow)]/30 bg-[color:var(--cyan-glow)]/10 px-4 py-2 text-[11px] font-mono text-[color:var(--cyan-glow)]"
+          >
+            <Sparkles className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex-1">{modelToast}</span>
+            <button onClick={() => setModelToast(null)} className="shrink-0 text-xs opacity-60 hover:opacity-100">✕</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Error banner ── */}
       {error && (
@@ -1056,11 +1142,12 @@ export function ChatScreen() {
                   : "border-border bg-card text-muted-foreground hover:border-[color:var(--amber)]/30 hover:text-[color:var(--amber)]",
               )}
             >
-              {forcedEngine === "claude_code" && <Sparkles className="h-3 w-3" />}
-              {forcedEngine === "hermes" && <Brain className="h-3 w-3" />}
-              {forcedEngine === "auto" && <span className="text-[10px]">···</span>}
+              {forcedEngine === "claude_code" && <ClaudeCodeIcon />}
+              {forcedEngine === "hermes" && <HermesIcon />}
+              {forcedEngine === "opencode" && <OpenCodeIcon />}
+              {forcedEngine === "auto" && <AutomaticIcon />}
               <span>
-                {forcedEngine === "claude_code" ? "Claude Code" : forcedEngine === "hermes" ? "Hermes" : "Forçar engine"}
+                {forcedEngine === "claude_code" ? "Claude Code" : forcedEngine === "hermes" ? "Hermes" : forcedEngine === "opencode" ? "OpenCode" : "Forçar engine"}
               </span>
               {showEnginePicker ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
             </button>
@@ -1073,6 +1160,7 @@ export function ChatScreen() {
                     forcedEngine === "auto" ? "text-[color:var(--amber)]" : "text-foreground",
                   )}
                 >
+                  <AutomaticIcon className="h-4 w-4" />
                   Automático (recomendado)
                 </button>
                 <button
@@ -1082,7 +1170,7 @@ export function ChatScreen() {
                     forcedEngine === "claude_code" ? "text-[color:var(--amber)]" : "text-foreground",
                   )}
                 >
-                  <Sparkles className="h-3 w-3" />
+                  <ClaudeCodeIcon className="h-4 w-4" />
                   Claude Code
                 </button>
                 <button
@@ -1092,9 +1180,99 @@ export function ChatScreen() {
                     forcedEngine === "hermes" ? "text-[color:var(--amber)]" : "text-foreground",
                   )}
                 >
-                  <Brain className="h-3 w-3" />
+                  <HermesIcon className="h-4 w-4" />
                   Hermes
                 </button>
+                <button
+                  onClick={() => { setForcedEngine("opencode"); setShowEnginePicker(false); }}
+                  className={cn(
+                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
+                    forcedEngine === "opencode" ? "text-[color:var(--amber)]" : "text-foreground",
+                  )}
+                >
+                  <OpenCodeIcon className="h-4 w-4" />
+                  OpenCode
+                </button>
+              </div>
+        )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => setShowModelsPicker((v) => !v)}
+              title="Modelos disponíveis"
+              className={cn(
+                "flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-mono font-medium transition-all",
+                activeModelId !== "auto"
+                  ? "border-[color:var(--cyan-glow)]/40 bg-[color:var(--cyan-glow)]/10 text-[color:var(--cyan-glow)]"
+                  : "border-border bg-card text-muted-foreground hover:border-[color:var(--cyan-glow)]/30 hover:text-[color:var(--cyan-glow)]",
+              )}
+            >
+              <Sparkles className="h-3 w-3" />
+              <span>Modelos</span>
+              {showModelsPicker ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            </button>
+            {showModelsPicker && (
+              <div className="absolute bottom-full left-0 z-20 mb-1 w-64 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+                <div className="max-h-72 overflow-y-auto p-1">
+                  {!modelsList ? (
+                    <div className="px-3 py-2 text-[11px] font-mono text-muted-foreground">Carregando modelos…</div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-1 px-3 py-1 text-[9px] font-bold tracking-widest text-muted-foreground">
+                        PAGOS
+                        <span className="rounded-full bg-[color:var(--amber)]/15 px-1.5 py-0.5 text-[8px] font-bold text-[color:var(--amber)]">PAGO</span>
+                      </div>
+                      {modelsList.paid.length === 0 && <div className="px-3 py-1 text-[10px] text-muted-foreground">Nenhum modelo pago.</div>}
+                      {modelsList.paid.map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => selectModel(m.id)}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
+                            activeModelId === m.id ? "text-[color:var(--cyan-glow)]" : "text-foreground",
+                          )}
+                        >
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.color }} />
+                          <span className="truncate">{m.label}</span>
+                        </button>
+                      ))}
+                      <div className="mt-1 flex items-center gap-1 border-t border-border px-3 py-1 text-[9px] font-bold tracking-widest text-muted-foreground">
+                        FREE
+                        <span className="rounded-full bg-[color:var(--emerald)]/15 px-1.5 py-0.5 text-[8px] font-bold text-[color:var(--emerald)]">FREE</span>
+                      </div>
+                      {modelsList.free.map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => selectModel(m.id)}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
+                            activeModelId === m.id ? "text-[color:var(--cyan-glow)]" : "text-foreground",
+                          )}
+                        >
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.color }} />
+                          <span className="truncate">{m.label}</span>
+                        </button>
+                      ))}
+                      <div className="mt-1 flex items-center gap-1 border-t border-border px-3 py-1 text-[9px] font-bold tracking-widest text-muted-foreground">
+                        ZEN
+                        <span className="rounded-full bg-[#a78bfa]/15 px-1.5 py-0.5 text-[8px] font-bold text-[#a78bfa]">ZEN</span>
+                      </div>
+                      {modelsList.zen.map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => selectModel(m.id)}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-muted",
+                            activeModelId === m.id ? "text-[color:var(--cyan-glow)]" : "text-foreground",
+                          )}
+                        >
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.color }} />
+                          <span className="truncate">{m.label}</span>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
               </div>
             )}
           </div>

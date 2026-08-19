@@ -1,17 +1,24 @@
 "use client";
 import { motion } from "framer-motion";
-import { MessageCircle, Terminal, Workflow, Brain, Settings } from "lucide-react";
 import { useAppState } from "@/hooks/use-app-state";
 import type { ScreenId } from "@/lib/app-state";
 import { cn } from "@/lib/utils";
 
-const ITEMS: { id: ScreenId; label: string; Icon: typeof MessageCircle }[] = [
-  { id: "chat", label: "Chat", Icon: MessageCircle },
-  { id: "terminal", label: "Terminal", Icon: Terminal },
-  { id: "n8n", label: "N8N", Icon: Workflow },
-  { id: "brain", label: "Memory", Icon: Brain },
-  { id: "settings", label: "Settings", Icon: Settings },
-];
+const ICON_SRCS = {
+  chat: "/icons/Chat-Hok.png",
+  terminal: "/icons/terminal.png",
+  n8n: "/icons/n8n.png",
+  models: "/icons/modelos.png",
+  settings: "/icons/configuracao.png",
+} as const;
+
+const ITEMS = [
+  { id: "chat" as const, label: "Chat" },
+  { id: "terminal" as const, label: "Terminal" },
+  { id: "n8n" as const, label: "N8N" },
+  { id: "models" as const, label: "Modelos" },
+  { id: "settings" as const, label: "Settings" },
+] as const;
 
 export function Dock() {
   const { screen, setScreen } = useAppState();
@@ -24,8 +31,9 @@ export function Dock() {
         transition={{ type: "spring", stiffness: 280, damping: 24 }}
         className="pointer-events-auto flex items-center gap-1 rounded-[28px] border border-border bg-card/90 px-3 py-2 shadow-[var(--shadow-window)] backdrop-blur-xl"
       >
-        {ITEMS.map(({ id, label, Icon }) => {
+        {ITEMS.map(({ id, label }) => {
           const active = screen === id;
+          const src = ICON_SRCS[id];
           return (
             <motion.button
               key={id}
@@ -39,7 +47,7 @@ export function Dock() {
               )}
               aria-label={label}
             >
-              <Icon className="h-5 w-5" />
+              <img src={src} alt={label} className="h-5 w-5 object-contain" />
               <span className="text-[9px] font-medium">{label}</span>
               {active && (
                 <motion.span

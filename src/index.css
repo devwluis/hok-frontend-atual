@@ -63,13 +63,13 @@
   --accent-foreground: #111827;
   --destructive: #d32f2f;
   --destructive-foreground: #ffffff;
-  --border: #d1d5db;
+  --border: #8f8f8b;
   --input: #d1d5db;
   --ring: #059669;
   --emerald: #059669;            /* esmeralda #10B981 escurecido p/ AA no claro */
   --emerald-foreground: #ffffff;
   --emerald-soft: #d1fae5;       /* fundo esverdeado suave */
-  --amber: #B45309;              /* âmbar #F59E0B escurecido p/ AA no claro */
+  --amber: #A66A0E;              /* âmbar escurecido p/ AA no claro (WCAG ~3.9:1 sobre bg-secondary) */
   --amber-foreground: #ffffff;
   --amber-soft: #fef3c7;         /* fundo âmbar suave */
   --cyan-glow: #0ea5e9;

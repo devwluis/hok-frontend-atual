@@ -1,63 +1,147 @@
-export type HokModel = {
-  id: string;
-  label: string;
-  provider: string;
-  color: string;
-  description: string;
-};
+export type HokModel = { id: string; label: string; provider: string; color: string; description: string; free: boolean; };
 
-export const HOK_MODELS: HokModel[] = [
-  {
-    id: "auto",
-    label: "Auto",
-    provider: "HOK",
-    color: "#F5A623",
-    description: "HOK escolhe o modelo ideal para cada tarefa",
-  },
-  {
-    id: "nousresearch/hermes-4-70b",
-    label: "Hermes 4",
-    provider: "OpenRouter",
-    color: "#8b5cf6",
-    description: "Hermes-4 70B — raciocínio e código complexo",
-  },
-  {
-    id: "cerebras",
-    label: "Cerebras",
-    provider: "Cerebras",
-    color: "#ef4444",
-    description: "Ultra-rápido — ideal para iterações rápidas",
-  },
-  {
-    id: "groq",
-    label: "Groq",
-    provider: "Groq",
-    color: "#22c55e",
-    description: "Llama 3.3 70B — velocidade + qualidade",
-  },
-  {
-    id: "gemini-2.5-flash",
-    label: "Gemini",
-    provider: "Google",
-    color: "#3b82f6",
-    description: "Gemini 2.5 Flash — multimodal e contexto longo",
-  },
-  {
-    id: "gemini-2.5-flash-lite",
-    label: "Gemini Lite",
-    provider: "Google",
-    color: "#60a5fa",
-    description: "Gemini Flash Lite — leve para tarefas simples",
-  },
-  {
-    id: "deepseek",
-    label: "DeepSeek",
-    provider: "DeepSeek",
-    color: "#06b6d4",
-    description: "DeepSeek — código e análise técnica",
-  },
+export const FALLBACK_MODELS: HokModel[] = [
+  { id: "auto", label: "Auto", provider: "HOK", color: "#F5A623", description: "HOK escolhe o modelo ideal para cada tarefa", free: true },
+  { id: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat v3.1", provider: "OpenCode Zen", color: "#06b6d4", description: "DeepSeek Chat v3.1 — gratuito via OpenCode Zen", free: true },
+  { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "OpenRouter", color: "#3b82f6", description: "Gemini 2.5 Flash — multimodal e contexto longo", free: false },
+  { id: "google/gemini-2.5-flash-lite", label: "Gemini Lite", provider: "OpenRouter", color: "#60a5fa", description: "Gemini Flash Lite — leve para tarefas simples", free: true },
+  { id: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat v3.1", provider: "OpenRouter", color: "#06b6d4", description: "DeepSeek Chat v3.1 — código e análise técnica", free: true },
 ];
 
+let modelsCache: HokModel[] | null = null;
+let cachePromise: Promise<HokModel[]> | null = null;
+
+const MODEL_COLORS: Record<string, string> = {
+  "OpenCode Zen": "#a855f7",
+  "OpenRouter": "#f97316",
+  "Google": "#3b82f6",
+  "OpenAI": "#10a37f",
+  "Anthropic": "#d97706",
+  "Meta": "#1877f2",
+  "Mistral": "#ff6b35",
+  "Cohere": "#f97316",
+  "Qwen": "#ff6b35",
+  "DeepSeek": "#06b6d4",
+  "MiniMax": "#ff6b35",
+  "GLM": "#ff6b35",
+  "Kimi": "#ff6b35",
+  "Muse": "#a855f7",
+  "Nemotron": "#a855f7",
+  "Jamba": "#ff6b35",
+};
+
+function getColorForProvider(provider: string, fallback: string): string {
+  return MODEL_COLORS[provider] || fallback;
+}
+
+function mapApiModelToHokModel(apiModel: any): HokModel {
+  const provider = apiModel.provider || "OpenRouter";
+  const fallbackColor = apiModel.free ? "#22c55e" : "#f97316";
+  return {
+    id: apiModel.id,
+    label: apiModel.label || apiModel.id,
+    provider,
+    color: getColorForProvider(provider, fallbackColor),
+    description: `${apiModel.label || apiModel.id} — ${apiModel.free ? "gratuito" : "pago"} via ${provider}`,
+    free: apiModel.free,
+  };
+}
+
+function readSettings(): { serverUrl: string; token: string } {
+  try {
+    const raw = localStorage.getItem("hokma.settings.v1");
+    if (!raw) return { serverUrl: "", token: "" };
+    const s = JSON.parse(raw) as Record<string, string>;
+    return { serverUrl: s["Server URL"] || "", token: s["HOK_TOKEN"] || "" };
+  } catch {
+    return { serverUrl: "", token: "" };
+  }
+}
+
+async function fetchModelsFromAPI(): Promise<HokModel[]> {
+  const { serverUrl, token } = readSettings();
+  if (!token) {
+    console.warn("[hok-models] Sem token, usando fallback");
+    return FALLBACK_MODELS;
+  }
+  const baseUrl = serverUrl || window.location.origin;
+  try {
+    const res = await fetch(`${baseUrl}/models/catalog`, {
+      headers: { "X-Hok-Token": token },
+    });
+    if (!res.ok) {
+      console.warn("[hok-models] Falha ao buscar catálogo:", res.status);
+      return FALLBACK_MODELS;
+    }
+    const data = await res.json();
+    if (data.status !== "ok" || !data.providers) {
+      console.warn("[hok-models] Resposta inválida do catálogo");
+      return FALLBACK_MODELS;
+    }
+    const models: HokModel[] = [
+      { id: "auto", label: "Auto", provider: "HOK", color: "#F5A623", description: "HOK escolhe o modelo ideal para cada tarefa", free: true },
+    ];
+    for (const pg of data.providers) {
+      for (const m of pg.models) {
+        models.push(mapApiModelToHokModel(m));
+      }
+    }
+    if (typeof data.active === "string" && data.active) {
+      (models as unknown as { _active?: string })._active = data.active;
+    }
+    return models;
+  } catch (e) {
+    console.error("[hok-models] Erro ao buscar catálogo:", e);
+    return FALLBACK_MODELS;
+  }
+}
+
+export async function getModels(): Promise<HokModel[]> {
+  if (modelsCache) return modelsCache;
+  if (!cachePromise) {
+    cachePromise = fetchModelsFromAPI().then((m) => {
+      modelsCache = m;
+      return m;
+    });
+  }
+  return cachePromise;
+}
+
+export function invalidateModelsCache(): void {
+  modelsCache = null;
+  cachePromise = null;
+}
+
 export function getModel(id: string): HokModel {
-  return HOK_MODELS.find((m) => m.id === id) ?? HOK_MODELS[0];
+  const source = modelsCache ?? FALLBACK_MODELS;
+  return (
+    source.find((x) => x.id === id) ?? {
+      id: "auto",
+      label: "Auto",
+      provider: "HOK",
+      color: "#F5A623",
+      description: "HOK escolhe o modelo ideal para cada tarefa",
+      free: true,
+    }
+  );
+}
+
+export async function isModelFree(id: string): Promise<boolean> {
+  const m = await getModels();
+  return (m.find((x) => x.id === id) ?? m[0]).free;
+}
+
+export async function getFreeModels(): Promise<HokModel[]> {
+  const models = await getModels();
+  return models.filter((x) => x.free);
+}
+
+export async function getPaidModels(): Promise<HokModel[]> {
+  const models = await getModels();
+  return models.filter((x) => !x.free && x.provider !== "OpenCode Zen");
+}
+
+export async function getZenModels(): Promise<HokModel[]> {
+  const models = await getModels();
+  return models.filter((x) => x.provider === "OpenCode Zen");
 }

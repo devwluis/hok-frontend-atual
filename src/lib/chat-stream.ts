@@ -13,6 +13,7 @@ export type StreamOpts = {
   webSearch?: boolean;
   forceClaudeCode?: boolean;
   forceHermes?: boolean;
+  forceOpenCode?: boolean;
   selectedModel?: string;
   imageB64?: string;
   imageMime?: string;
@@ -22,6 +23,7 @@ export type StreamOpts = {
   conversationId?: string | null;
   onPendingAction?: (pa: PendingAction | null) => void;
   onEngineUsed?: (engine: string) => void;
+  onModelUsed?: (model: string) => void;
   signal?: AbortSignal;
   onToken: (delta: string) => void;
 };
@@ -31,6 +33,12 @@ function extractEngineUsed(payload: unknown): string | null {
   const p = payload as Record<string, unknown>;
   const e = p.engine_used ?? p.engineUsed;
   return typeof e === "string" && e ? e : null;
+}
+function extractModelUsed(payload: unknown): string | null {
+  if (payload == null || typeof payload !== "object") return null;
+  const p = payload as Record<string, unknown>;
+  const m = p.model_used ?? p.modelUsed ?? p.model;
+  return typeof m === "string" && m ? m : null;
 }
 function extractPendingAction(payload: unknown): PendingAction | null {
   if (payload == null || typeof payload !== "object") return null;
@@ -122,6 +130,7 @@ export async function streamChat(opts: StreamOpts): Promise<string> {
     conversationId,
     onPendingAction,
     onEngineUsed,
+    onModelUsed,
     signal,
     onToken,
   } = opts;
@@ -235,6 +244,16 @@ export async function streamChat(opts: StreamOpts): Promise<string> {
             }
           } catch { /* ignore */ }
         }
+        if (onModelUsed) {
+          try {
+            let dataStr = rawLine.trim();
+            if (dataStr.startsWith("data:")) dataStr = dataStr.slice(5).trim();
+            if (dataStr && dataStr !== "[DONE]") {
+              const mu = extractModelUsed(JSON.parse(dataStr));
+              if (mu) onModelUsed(mu);
+            }
+          } catch { /* ignore */ }
+        }
       }
     }
 
@@ -261,6 +280,8 @@ export async function streamChat(opts: StreamOpts): Promise<string> {
     try {
       const json = JSON.parse(text) as unknown;
       if (onPendingAction) onPendingAction(extractPendingAction(json));
+      if (onEngineUsed) { const eu = extractEngineUsed(json); if (eu) onEngineUsed(eu); }
+      if (onModelUsed) { const mu = extractModelUsed(json); if (mu) onModelUsed(mu); }
       const delta = extractDelta(json);
       if (delta) { onToken(delta); return delta; }
     } catch { /* not JSON */ }

@@ -3,6 +3,7 @@ export type ScreenId =
   | "terminal"
   | "n8n"
   | "brain"
+  | "models"
   | "settings"
   | "session"
   | "agent"

@@ -1,19 +1,36 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Search, BookOpen } from "lucide-react";
 import { ScreenFrame, ScreenHeader, Card } from "@/components/shell/ScreenFrame";
+import { hokGet } from "@/lib/hok-api";
 
-const CARDS = [
-  { title: "Padrão de Webhook N8N", tags: ["n8n", "rest"], body: "Sempre validar Content-Type e usar JSON.stringify no nó Code." },
-  { title: "Prompt sênior Hokmá", tags: ["prompt"], body: "Foco em precisão técnica, sem comentários genéricos." },
-  { title: "Núcleo Eletro-magnético", tags: ["ui", "core"], body: "Esfera amber pulsante com anel cíclico." },
-  { title: "Autenticação X-Hok-Token", tags: ["segurança", "api"], body: "Todas as chamadas ao HOK backend usam X-Hok-Token no header." },
-  { title: "Chave de configurações unificada", tags: ["frontend", "settings"], body: "Usar hokma.settings.v1 em toda a aplicação para consistência." },
-];
+type CodexEntry = { title: string; tag: string; content: string; ts?: string };
+
+type CodexCard = { title: string; tags: string[]; body: string };
 
 export function CodexScreen({ embedded = false }: { embedded?: boolean }) {
   const [q, setQ] = useState("");
-  const list = CARDS.filter((c) =>
+  const [cards, setCards] = useState<CodexCard[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    hokGet<{ codex: CodexEntry[]; status: string }>("/codex").then((res) => {
+      if (!active) return;
+      if (res.ok) {
+        setCards((res.data.codex || []).map((c) => ({
+          title: c.title,
+          tags: c.tag ? [c.tag] : [],
+          body: c.content,
+        })));
+      } else {
+        setError(res.error);
+      }
+    });
+    return () => { active = false; };
+  }, []);
+
+  const list = cards.filter((c) =>
     c.title.toLowerCase().includes(q.toLowerCase()) ||
     c.body.toLowerCase().includes(q.toLowerCase()) ||
     c.tags.some((t) => t.toLowerCase().includes(q.toLowerCase())),
@@ -30,7 +47,15 @@ export function CodexScreen({ embedded = false }: { embedded?: boolean }) {
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
       </Card>
-      {list.length === 0 && (
+      {error && (
+        <div className="mb-3 rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-500">
+          Falha ao carregar o Codex: {error}
+        </div>
+      )}
+      {!error && cards.length === 0 && (
+        <div className="py-8 text-center text-sm text-muted-foreground">Nenhum registro no Codex ainda.</div>
+      )}
+      {list.length === 0 && cards.length > 0 && (
         <div className="py-8 text-center text-sm text-muted-foreground">Nenhum resultado para "{q}"</div>
       )}
       <div className="space-y-2">

@@ -1,19 +1,45 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Search, Database } from "lucide-react";
 import { ScreenFrame, ScreenHeader, Card } from "@/components/shell/ScreenFrame";
+import { hokGet } from "@/lib/hok-api";
 
-const ROWS = [
-  { id: "mem_001", tag: "n8n", content: "Webhook imoveis aceita POST com x-hokma-token" },
-  { id: "mem_002", tag: "core", content: "Núcleo eletro-magnético renderiza em <16ms" },
-  { id: "mem_003", tag: "infra", content: "AI Gateway próprio em /api/chat com SSE" },
-  { id: "mem_004", tag: "bug", content: "Trailing comma em JSON quebra parse no n8n" },
-  { id: "mem_005", tag: "security", content: "HOK_TOKEN valida requisições ao backend" },
-];
+type MemoryEntry = { key: string; ts: string; value: string };
+
+type Row = { id: string; tag: string; content: string };
+
+function tagOf(key: string): string {
+  if (key.startsWith("#")) {
+    const prefix = key.slice(1).split(":")[0];
+    const map: Record<string, string> = { decisao: "decisao", bug: "bug", arquivo: "arquivo", conceito: "conceito", doc: "doc", erro: "erro" };
+    return map[prefix] ?? "memoria";
+  }
+  return "memoria";
+}
 
 export function DBStudioScreen() {
   const [q, setQ] = useState("");
-  const filtered = ROWS.filter(
+  const [rows, setRows] = useState<Row[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    hokGet<{ memories: MemoryEntry[]; status: string }>("/memories").then((res) => {
+      if (!active) return;
+      if (res.ok) {
+        setRows((res.data.memories || []).map((m) => ({
+          id: m.key,
+          tag: tagOf(m.key),
+          content: m.value,
+        })));
+      } else {
+        setError(res.error);
+      }
+    });
+    return () => { active = false; };
+  }, []);
+
+  const filtered = rows.filter(
     (r) => r.id.includes(q) || r.tag.includes(q) || r.content.toLowerCase().includes(q.toLowerCase()),
   );
 
@@ -25,23 +51,28 @@ export function DBStudioScreen() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="SELECT * FROM memory WHERE..."
+          placeholder="Buscar nas memórias..."
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground font-mono"
         />
       </Card>
+      {error && (
+        <div className="mb-3 rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-500">
+          Falha ao carregar o banco: {error}
+        </div>
+      )}
       <Card className="overflow-hidden p-0">
         <div className="flex items-center gap-2 border-b border-border bg-muted px-3 py-2">
           <Database className="h-4 w-4 text-muted-foreground" />
           <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-            memory — {filtered.length} registro{filtered.length !== 1 ? "s" : ""}
+            memories — {filtered.length} registro{filtered.length !== 1 ? "s" : ""}
           </span>
         </div>
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-[10px] uppercase tracking-wider text-muted-foreground">
             <tr>
-              <th className="px-3 py-2">id</th>
+              <th className="px-3 py-2">key</th>
               <th className="px-3 py-2">tag</th>
-              <th className="px-3 py-2">content</th>
+              <th className="px-3 py-2">value</th>
             </tr>
           </thead>
           <tbody>
@@ -56,10 +87,17 @@ export function DBStudioScreen() {
                 <td className="px-3 py-2 text-[12px]">{r.content}</td>
               </tr>
             ))}
-            {filtered.length === 0 && (
+            {rows.length > 0 && filtered.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-3 py-6 text-center text-muted-foreground text-sm">
                   Nenhum resultado para "{q}"
+                </td>
+              </tr>
+            )}
+            {!error && rows.length === 0 && (
+              <tr>
+                <td colSpan={3} className="px-3 py-6 text-center text-muted-foreground text-sm">
+                  Nenhuma memória registrada ainda.
                 </td>
               </tr>
             )}

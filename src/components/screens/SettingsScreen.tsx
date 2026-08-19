@@ -1,11 +1,23 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Eye, EyeOff, Check, Save, AlertCircle } from "lucide-react";
+import { Eye, EyeOff, Check, Save, AlertCircle, Server } from "lucide-react";
 import { ScreenFrame, ScreenHeader, Card } from "@/components/shell/ScreenFrame";
 import { usePersistentState } from "@/lib/use-persistent-state";
+import { hokGet } from "@/lib/hok-api";
 
 // Unified settings key — same as SettingsModal
 const SETTINGS_KEY = "hokma.settings.v1";
+
+// Mapeia campos da tela para as chaves do backend (GET /settings devolve
+// <key>Configured como boolean — sem valores em texto puro)
+const SERVER_KEY_MAP: Record<string, string> = {
+  DeepSeek: "deepseekKey",
+  OpenRouter: "openrouterKey",
+  Gemini: "geminiKey",
+  OpenAI: "openaiKey",
+  Groq: "groqKey",
+  Anthropic: "anthropicKey",
+};
 
 const KEYS = [
   { k: "Server URL", placeholder: "https://api.hokma.dev", description: "URL base do servidor HOK externo" },
@@ -31,6 +43,8 @@ export function SettingsScreen() {
     total_usage?: number;
   } | null>(null);
   const [creditsError, setCreditsError] = useState<string | null>(null);
+  const [serverConfigured, setServerConfigured] = useState<Record<string, boolean> | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
 
   const markSaved = (k: string) => {
     setSavedAt((s) => ({ ...s, [k]: Date.now() }));
@@ -56,6 +70,22 @@ export function SettingsScreen() {
   const hokToken = vals["HOK_TOKEN"] || "";
   const showWarning = serverUrl && !hokToken;
 
+  useEffect(() => {
+    let active = true;
+    if (!hokToken) return;
+    hokGet<{ settings: Record<string, unknown>; status: string }>("/settings").then((res) => {
+      if (!active) return;
+      if (res.ok) {
+        setServerError(null);
+        setServerConfigured(res.data.settings as Record<string, boolean>);
+      } else {
+        setServerError(res.error);
+        setServerConfigured(null);
+      }
+    });
+    return () => { active = false; };
+  }, [hokToken, serverUrl]);
+
   return (
     <ScreenFrame>
       <ScreenHeader title="Settings" subtitle="Conexões, tokens e chaves de API." />
@@ -68,13 +98,22 @@ export function SettingsScreen() {
       )}
 
       <Card className="space-y-4">
-        {KEYS.map(({ k, placeholder, description }) => (
+        {KEYS.map(({ k, placeholder, description }) => {
+          const serverKey = SERVER_KEY_MAP[k];
+          const configured = serverKey ? serverConfigured?.[serverKey + "Configured"] : undefined;
+          return (
           <div key={k}>
             <label className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {k}
             </label>
             {description && (
               <p className="mb-1 text-[11px] text-muted-foreground/70">{description}</p>
+            )}
+            {serverKey && serverConfigured && (
+              <span className={`mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${configured ? "bg-emerald-500/15 text-emerald-500" : "bg-muted text-muted-foreground"}`}>
+                <Server className="h-3 w-3" />
+                {configured ? "Configurado no servidor" : "Não configurado no servidor"}
+              </span>
             )}
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -102,8 +141,14 @@ export function SettingsScreen() {
               </button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </Card>
+      {serverError && (
+        <div className="mt-4 rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-500">
+          Estado do servidor indisponível: {serverError}
+        </div>
+      )}
       <Card className="mt-4 space-y-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           💳 OpenRouter
