@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=Space+Grotesk:wght@500;600;700&family=Inter:wght@600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
 @import 'tailwindcss' source(none);
 @source "../src";
 @import 'tw-animate-css';
@@ -209,6 +210,42 @@
 
 @keyframes spin-slow { to { transform: rotate(360deg); } }
 .animate-spin-slow { animation: spin-slow 6s linear infinite; }
+
+/* ── Tipografia dos motores de processamento (fonte original de cada marca) ── */
+.engine-font-hok {
+  font-family: "Space Grotesk", "Avenir Next", "Century Gothic", sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--amber);
+}
+.engine-font-claude {
+  font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #e8927c;
+}
+.engine-font-hermes {
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #7c9cff;
+}
+.engine-font-opencode {
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, "SF Mono", Consolas, monospace;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #a78bfa;
+  background: linear-gradient(135deg, #a78bfa, #22d3ee);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+@supports not (-webkit-background-clip: text) {
+  .engine-font-opencode {
+    -webkit-text-fill-color: currentColor;
+    color: #a78bfa;
+  }
+}
 
 /* Botão console dos seletores IA/ENGINE (UX v5) */
 .hok-console-button {

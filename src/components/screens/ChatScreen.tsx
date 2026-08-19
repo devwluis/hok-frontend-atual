@@ -13,7 +13,7 @@ import { getModel, getFreeModels, getPaidModels, getZenModels, invalidateModelsC
 import { type PendingAction } from "@/lib/chat-stream";
 import { detectN8NIntent, N8N_SYSTEM_PROMPT, type N8NModeState } from "@/lib/n8n-expert";
 import { OwnerGate } from "@/components/shell/OwnerGate";
-import { ClaudeCodeIcon, OpenCodeIcon, HermesIcon, AutomaticIcon } from "@/components/chat/EngineIcons";
+import { AutomaticIcon } from "@/components/chat/EngineIcons";
 
 // Unified settings key
 const SETTINGS_KEY = "hokma.settings.v1";
@@ -27,10 +27,18 @@ type EngineId = "auto" | "hok" | "claude" | "opencode" | "hermes";
 const ENGINE_OPTIONS: { id: EngineId; label: string; sub?: string; Icon?: (p: { className?: string }) => React.ReactNode }[] = [
   { id: "auto", label: "Automático", sub: "recomendado", Icon: AutomaticIcon },
   { id: "hok", label: "Hok Orquestrador", sub: "padrão" },
-  { id: "claude", label: "Claude Code Terminal", Icon: ClaudeCodeIcon },
-  { id: "opencode", label: "OpenCode Terminal", Icon: OpenCodeIcon },
-  { id: "hermes", label: "Hermes", Icon: HermesIcon },
+  { id: "claude", label: "Claude Code Terminal" },
+  { id: "opencode", label: "OpenCode Terminal" },
+  { id: "hermes", label: "Hermes" },
 ];
+// Fonte característica de cada engine (CSS em index.css)
+const ENGINE_FONT: Record<EngineId, string> = {
+  auto: "",
+  hok: "engine-font-hok",
+  claude: "engine-font-claude",
+  opencode: "engine-font-opencode",
+  hermes: "engine-font-hermes",
+};
 function readForcedEngine(): EngineId {
   try {
     const v = localStorage.getItem(ENGINE_KEY) as EngineId | "claude_code";
@@ -440,7 +448,7 @@ export function ChatScreen() {
   useEffect(() => {
     if (showModelsPicker && !modelsList) {
       setModelMenuError(null);
-      Promise.all([getPaidModels(), getFreeModels(), getZenModels()])
+      Promise.all([getPaidModels(true), getFreeModels(true), getZenModels(true)])
         .then(([paid, free, zen]) => {
           setModelsList({ paid, free, zen });
         })
@@ -454,10 +462,24 @@ export function ChatScreen() {
     }
   }, [showModelsPicker, modelsList, modelMenuRetry]);
 
+  // Auto-refresh do catálogo enquanto aberto: novos modelos do OpenCode
+  // aparecem automaticamente sem precisar fechar/reabrir.
+  useEffect(() => {
+    if (!showModelsPicker) return;
+    const t = setInterval(() => {
+      setModelMenuError(null);
+      Promise.all([getPaidModels(true), getFreeModels(true), getZenModels(true)])
+        .then(([paid, free, zen]) => setModelsList({ paid, free, zen }))
+        .catch(() => { /* mantém a lista atual */ });
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [showModelsPicker]);
+
   const selectModel = (modelId: string) => {
     // Atualiza estado e fecha o catálogo imediatamente (label do botão
     // compacto muda na hora); o POST /models/select roda em background.
     setSelectedModel(modelId);
+    setActiveModelId(modelId);
     setShowModelsPicker(false);
     try {
       const { serverUrl, token } = readSettings();
@@ -467,10 +489,7 @@ export function ChatScreen() {
         headers: { "Content-Type": "application/json", "X-Hok-Token": token },
         body: JSON.stringify({ model: modelId }),
       })
-        .then(() => {
-          setActiveModelId(modelId);
-          invalidateModelsCache();
-        })
+        .then(() => invalidateModelsCache())
         .catch(() => { /* ignore */ });
     } catch { /* ignore */ }
   };
@@ -1109,7 +1128,7 @@ export function ChatScreen() {
             >
               <span className="flex min-w-0 items-center gap-2">
                 <span className="shrink-0 font-mono text-[10px] tracking-[0.08em] text-muted-foreground">◈ ENGINE</span>
-                <span className={cn("truncate text-[12px] font-semibold", forcedEngine !== "auto" ? "text-rose-300" : "text-[color:var(--amber)]")}>{engineLabel}</span>
+                <span className={cn("truncate text-[12px] font-semibold", ENGINE_FONT[forcedEngine] || (forcedEngine === "auto" ? "text-[color:var(--amber)]" : "text-rose-300"))}>{engineLabel}</span>
               </span>
               {showEnginePicker ? <ChevronUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
             </button>
@@ -1144,8 +1163,8 @@ export function ChatScreen() {
                         forcedEngine === opt.id ? "text-[color:var(--amber)]" : "text-foreground",
                       )}
                     >
-                      <span className="flex items-center gap-2 font-mono">
-                        {opt.Icon && <opt.Icon className="h-3.5 w-3.5" />}
+                      <span className={cn("flex items-center gap-2", ENGINE_FONT[opt.id], opt.id === "auto" && "font-mono")}>
+                        {opt.Icon && <opt.Icon className="h-3.5 w-3.5 shrink-0" />}
                         {opt.label}
                         {opt.sub && <span className="text-[9px] text-muted-foreground">({opt.sub})</span>}
                       </span>

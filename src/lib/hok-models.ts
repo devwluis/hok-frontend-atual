@@ -10,6 +10,8 @@ export const FALLBACK_MODELS: HokModel[] = [
 
 let modelsCache: HokModel[] | null = null;
 let cachePromise: Promise<HokModel[]> | null = null;
+let modelsFetchedAt = 0;
+const MODELS_TTL_MS = 60_000;
 
 const MODEL_COLORS: Record<string, string> = {
   "OpenCode Zen": "#a855f7",
@@ -96,11 +98,12 @@ async function fetchModelsFromAPI(): Promise<HokModel[]> {
   }
 }
 
-export async function getModels(): Promise<HokModel[]> {
-  if (modelsCache) return modelsCache;
+export async function getModels(force = false): Promise<HokModel[]> {
+  if (!force && modelsCache && Date.now() - modelsFetchedAt < MODELS_TTL_MS) return modelsCache;
   if (!cachePromise) {
     cachePromise = fetchModelsFromAPI().then((m) => {
       modelsCache = m;
+      modelsFetchedAt = Date.now();
       return m;
     });
   }
@@ -110,20 +113,34 @@ export async function getModels(): Promise<HokModel[]> {
 export function invalidateModelsCache(): void {
   modelsCache = null;
   cachePromise = null;
+  modelsFetchedAt = 0;
+}
+
+function prettyLabelFromId(id: string): string {
+  const last = id.split("/").pop() ?? id;
+  return last
+    .split(/[-_]/)
+    .map((w) => {
+      if (!w) return "";
+      if (/^v?\d/.test(w)) return w.charAt(0).toUpperCase() + w.slice(1);
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    })
+    .join(" ");
 }
 
 export function getModel(id: string): HokModel {
-  const source = modelsCache ?? FALLBACK_MODELS;
-  return (
-    source.find((x) => x.id === id) ?? {
-      id: "auto",
-      label: "Auto",
-      provider: "HOK",
-      color: "#F5A623",
-      description: "HOK escolhe o modelo ideal para cada tarefa",
-      free: true,
-    }
-  );
+  if (id === "auto") return FALLBACK_MODELS[0];
+  const found = modelsCache?.find((x) => x.id === id) ?? FALLBACK_MODELS.find((x) => x.id === id);
+  if (found) return found;
+  const provider = id.split("/")[0] ?? "OpenRouter";
+  return {
+    id,
+    label: prettyLabelFromId(id),
+    provider,
+    color: getColorForProvider(provider, "#f97316"),
+    description: `${id} — fornecido via ${provider}`,
+    free: false,
+  };
 }
 
 export async function isModelFree(id: string): Promise<boolean> {
@@ -131,17 +148,17 @@ export async function isModelFree(id: string): Promise<boolean> {
   return (m.find((x) => x.id === id) ?? m[0]).free;
 }
 
-export async function getFreeModels(): Promise<HokModel[]> {
-  const models = await getModels();
+export async function getFreeModels(force = false): Promise<HokModel[]> {
+  const models = await getModels(force);
   return models.filter((x) => x.free);
 }
 
-export async function getPaidModels(): Promise<HokModel[]> {
-  const models = await getModels();
+export async function getPaidModels(force = false): Promise<HokModel[]> {
+  const models = await getModels(force);
   return models.filter((x) => !x.free && x.provider !== "OpenCode Zen");
 }
 
-export async function getZenModels(): Promise<HokModel[]> {
-  const models = await getModels();
+export async function getZenModels(force = false): Promise<HokModel[]> {
+  const models = await getModels(force);
   return models.filter((x) => x.provider === "OpenCode Zen");
 }
