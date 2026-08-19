@@ -21,12 +21,12 @@ export function Dock() {
   const { screen, setScreen } = useAppState();
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-30 flex items-end justify-center pb-2 pointer-events-none">
+    <div className="pointer-events-none fixed bottom-4 left-1/2 z-[100] -translate-x-1/2">
       <motion.div
         initial={{ y: 80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 280, damping: 24 }}
-        className="pointer-events-auto flex items-center gap-1 rounded-[28px] border border-white/10 bg-zinc-900/90 px-4 py-3 shadow-[var(--shadow-window)] backdrop-blur-md"
+        className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/10 bg-zinc-900/90 px-4 py-3 shadow-[var(--shadow-window)] backdrop-blur-md"
       >
         {ITEMS.map(({ id, label }) => {
           const active = screen === id;

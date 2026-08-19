@@ -161,7 +161,7 @@ export function TerminalScreen() {
   const statusLabel = conn === "live" ? "LIVE" : conn === "connecting" ? "CONECTANDO…" : "OFFLINE";
 
   return (
-    <div className="flex h-full flex-col bg-[#0d1117] font-mono text-emerald-400">
+    <div className="flex h-full flex-col bg-[#0d1117] pb-24 font-mono text-emerald-400">
       <div className="flex items-center justify-between border-b border-emerald-900/40 px-3 py-2 text-[11px]">
         <span className="flex items-center gap-1.5 text-emerald-300/80">
           <TermIcon className="h-3.5 w-3.5" />

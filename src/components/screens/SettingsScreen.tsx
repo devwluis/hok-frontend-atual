@@ -82,8 +82,9 @@ function CreditGridCell({ label, value, highlight, danger }: {
   return (
     <div className={cn(
       "rounded-xl px-3 py-2.5",
-      danger ? "border border-red-500/20 bg-red-500/10" : "bg-muted/60",
-      highlight && !danger && "border border-[#10b981]/40",
+      danger ? "border border-red-500/20 bg-red-500/10"
+        : highlight ? "border border-emerald-500/20 bg-emerald-500/10"
+        : "bg-muted/60",
     )}>
       <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className={cn(
