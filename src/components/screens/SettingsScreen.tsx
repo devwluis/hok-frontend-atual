@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Eye, EyeOff, Check, Save, AlertCircle, Server, RefreshCw, Zap } from "lucide-react";
+import type { ReactNode } from "react";
+import { Eye, EyeOff, Check, Save, AlertCircle, Server, RefreshCw, Zap, Wallet } from "lucide-react";
 import { ScreenFrame, ScreenHeader, Card } from "@/components/shell/ScreenFrame";
 import { usePersistentState } from "@/lib/use-persistent-state";
 import { hokGet } from "@/lib/hok-api";
@@ -35,6 +36,57 @@ function formatReset(iso: string | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function CreditCardHeader({ icon, title, subtitle, onRefresh, loading, statusBadge, refreshTestId }: {
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  onRefresh: () => void;
+  loading?: boolean;
+  statusBadge?: ReactNode;
+  refreshTestId: string;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500">
+          {icon}
+        </div>
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+            {statusBadge}
+          </div>
+          <p className="text-[11px] text-muted-foreground">{subtitle}</p>
+        </div>
+      </div>
+      <button
+        onClick={onRefresh}
+        className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-[color:var(--amber)]/10 hover:text-[color:var(--amber)]"
+        aria-label="Sincronizar"
+        data-testid={refreshTestId}
+      >
+        <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+      </button>
+    </div>
+  );
+}
+
+function CreditGridCell({ label, value, highlight, border }: {
+  label: string;
+  value: string;
+  highlight?: boolean;
+  border?: boolean;
+}) {
+  return (
+    <div className={cn("rounded-xl bg-muted/60 px-3 py-2.5", border && "border border-[#10b981]/40")}>
+      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={cn("mt-0.5 font-mono text-sm font-semibold", highlight ? "text-emerald-400" : "text-foreground")}>
+        {value}
+      </p>
+    </div>
+  );
 }
 
 export function SettingsScreen() {
@@ -142,132 +194,96 @@ export function SettingsScreen() {
         </div>
       )}
 
-      {/* ── Card OpenRouter ── */}
-      <Card className="mt-4 space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            💳 OpenRouter
-          </h3>
-          <button
-            onClick={credits.refresh}
-            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[color:var(--amber)]/10 hover:text-[color:var(--amber)]"
-            aria-label="Sincronizar créditos"
-            data-testid="button-credits-refresh"
-          >
-            <RefreshCw className={cn("h-4 w-4", credits.loading && "animate-spin")} />
-          </button>
-        </div>
+      {/* ── Card Créditos OpenRouter ── */}
+      <Card className="mt-4 space-y-3">
+        <CreditCardHeader
+          icon={<Wallet className="h-5 w-5" />}
+          title="Créditos OpenRouter"
+          subtitle="Saldo da chave do servidor"
+          onRefresh={credits.refresh}
+          loading={credits.loading}
+          refreshTestId="button-credits-refresh"
+        />
         {credits.error && (
           <p className="text-xs text-destructive">Não foi possível carregar: {credits.error}</p>
         )}
         {!credits.error && !credits.data && (
           <p className="text-xs text-muted-foreground">Carregando...</p>
         )}
-        {credits.data && (
-          <div className="space-y-1 text-sm">
-            {credits.data.balance != null && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Saldo</span>
-                <span className="font-mono font-semibold text-base">${credits.data.balance.toFixed(2)}</span>
+        {credits.data && (() => {
+          const total = credits.data.total_credits ?? (credits.data.balance ?? 0) + (credits.data.usage_total ?? 0);
+          const gasto = credits.data.usage_total ?? credits.data.usage_monthly ?? 0;
+          const saldo = credits.data.balance ?? Math.max(0, total - gasto);
+          const detail = [
+            credits.data.usage_monthly != null && `mês: $${credits.data.usage_monthly.toFixed(2)}`,
+            credits.data.usage_weekly != null && `semana: $${credits.data.usage_weekly.toFixed(2)}`,
+            credits.data.usage_daily != null && `dia: $${credits.data.usage_daily.toFixed(2)}`,
+          ].filter(Boolean).join(" · ");
+          return (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                <CreditGridCell label="Total carregado" value={`$${total.toFixed(2)}`} />
+                <CreditGridCell label="Gasto até o momento" value={`$${gasto.toFixed(2)}`} />
+                <CreditGridCell label="Saldo atual" value={`$${saldo.toFixed(2)}`} highlight border />
               </div>
-            )}
-            <div className="flex items-center justify-between rounded-lg bg-red-500/10 px-3 py-1.5">
-              <span className="text-muted-foreground">Gasto este mês</span>
-              <span className="font-mono font-semibold text-destructive">${credits.data.usage_monthly.toFixed(2)}</span>
-            </div>
-            {credits.data.total_credits != null && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Total comprado</span>
-                <span className="font-mono">${credits.data.total_credits.toFixed(2)}</span>
-              </div>
-            )}
-            {credits.data.limit != null && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Limite da chave</span>
-                <span className="font-mono">${credits.data.limit.toFixed(2)}</span>
-              </div>
-            )}
-            {credits.data.limit_remaining != null && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Restante (chave)</span>
-                <span className="font-mono">${credits.data.limit_remaining.toFixed(2)}</span>
-              </div>
-            )}
-            {credits.data.limit == null && credits.data.balance == null && (
-              <p className="text-[11px] text-muted-foreground/70">Esta chave não tem limite configurado.</p>
-            )}
-          </div>
-        )}
+              {detail && (
+                <p className="text-[10px] text-muted-foreground/70">Uso no mês: {detail}</p>
+              )}
+            </>
+          );
+        })()}
       </Card>
 
-      {/* ── Card Assinatura OpenCode Go ── */}
-      <Card className="mt-4 space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            <Zap className="h-3.5 w-3.5 text-[color:var(--amber)]" />
-            Assinatura OpenCode Go
-          </h3>
-          <button
-            onClick={opencode.refresh}
-            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[color:var(--amber)]/10 hover:text-[color:var(--amber)]"
-            aria-label="Sincronizar OpenCode Go"
-            data-testid="button-opencode-refresh"
-          >
-            <RefreshCw className={cn("h-4 w-4", opencode.loading && "animate-spin")} />
-          </button>
-        </div>
+      {/* ── Card Créditos OpenCode Go ── */}
+      <Card className="mt-4 space-y-3">
+        <CreditCardHeader
+          icon={<Zap className="h-5 w-5" />}
+          title="Créditos OpenCode Go"
+          subtitle="Assinatura do plano Go · renovação mensal"
+          onRefresh={opencode.refresh}
+          loading={opencode.loading}
+          refreshTestId="button-opencode-refresh"
+          statusBadge={opencode.data?.subscribed ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-500">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Ativo
+            </span>
+          ) : undefined}
+        />
         {opencode.error && (
           <p className="text-xs text-destructive">{opencode.error}</p>
         )}
         {!opencode.error && !opencode.data && (
           <p className="text-xs text-muted-foreground">Carregando...</p>
         )}
-        {opencode.data && (
-          <div className="space-y-1 text-sm">
-            {opencode.data.subscribed ? (
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Status</span>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-500">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  Ativo
-                </span>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Status</span>
-                <span className="text-xs text-muted-foreground">Inativo</span>
-              </div>
-            )}
-            {opencode.data.monthly && (
-              <div className="flex items-center justify-between rounded-lg bg-red-500/10 px-3 py-1.5">
-                <span className="text-muted-foreground">Uso no Mês</span>
-                <span className="font-mono font-semibold text-destructive">
-                  {opencode.data.monthly.percent}% (${opencode.data.monthly.usedDollars} / ${opencode.data.monthly.limitDollars})
-                </span>
-              </div>
-            )}
-            {opencode.data.rolling && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Uso (5h)</span>
-                <span className="font-mono">
-                  {opencode.data.rolling.percent}% (${opencode.data.rolling.usedDollars} / ${opencode.data.rolling.limitDollars})
-                </span>
-              </div>
-            )}
-            {opencode.data.weekly && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Uso (semana)</span>
-                <span className="font-mono">
-                  {opencode.data.weekly.percent}% (${opencode.data.weekly.usedDollars} / ${opencode.data.weekly.limitDollars})
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Renovação</span>
-              <span className="font-mono">{formatReset(opencode.data.monthly?.resetsAt)}</span>
-            </div>
-          </div>
+        {opencode.data && !opencode.data.subscribed && (
+          <p className="text-xs text-muted-foreground">Sem assinatura OpenCode Go ativa.</p>
         )}
+        {opencode.data && opencode.data.subscribed && opencode.data.monthly && (() => {
+          const total = opencode.data.monthly.limitDollars;
+          const gasto = opencode.data.monthly.usedDollars;
+          const saldo = Math.max(0, total - gasto);
+          const detail = [
+            `mês: $${opencode.data.monthly.usedDollars.toFixed(2)}`,
+            opencode.data.rolling && `5h: $${opencode.data.rolling.usedDollars.toFixed(2)}`,
+            opencode.data.weekly && `semana: $${opencode.data.weekly.usedDollars.toFixed(2)}`,
+          ].filter(Boolean).join(" · ");
+          return (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                <CreditGridCell label="Total carregado" value={`$${total.toFixed(2)}`} />
+                <CreditGridCell label="Gasto até o momento" value={`$${gasto.toFixed(2)}`} />
+                <CreditGridCell label="Saldo atual" value={`$${saldo.toFixed(2)}`} highlight border />
+              </div>
+              {detail && (
+                <p className="text-[10px] text-muted-foreground/70">Uso no mês: {detail}</p>
+              )}
+              <p className="text-[10px] text-muted-foreground/70">
+                Renovação: {formatReset(opencode.data.monthly.resetsAt)}
+              </p>
+            </>
+          );
+        })()}
       </Card>
 
       <div className="mt-4 rounded-xl border border-border bg-card/50 px-4 py-3 text-[11px] text-muted-foreground">

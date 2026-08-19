@@ -214,3 +214,6 @@
 .hok-console-button {
   transition: transform 0.15s, border-color 0.15s, background-color 0.15s, color 0.15s;
 }
+
+/* Item do dock inferior (UX v5) */
+.hok-dock-item { width: 68px; }

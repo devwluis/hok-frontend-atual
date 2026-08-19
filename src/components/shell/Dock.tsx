@@ -1,21 +1,20 @@
 "use client";
 import { motion } from "framer-motion";
 import { useAppState } from "@/hooks/use-app-state";
-import type { ScreenId } from "@/lib/app-state";
 import { cn } from "@/lib/utils";
 
 const ICON_SRCS = {
-  chat: "/icons/Chat-Hok.png",
-  terminal: "/icons/terminal.png",
-  n8n: "/icons/n8n.png",
-  settings: "/icons/configuracao.png",
+  chat: "/icons/hok-chat.png?v=2",
+  terminal: "/icons/hok-terminal.png?v=2",
+  n8n: "/icons/hok-n8n.png?v=2",
+  settings: "/icons/hok-config.png?v=2",
 } as const;
 
 const ITEMS = [
   { id: "chat" as const, label: "Chat" },
   { id: "terminal" as const, label: "Terminal" },
   { id: "n8n" as const, label: "N8N" },
-  { id: "settings" as const, label: "Settings" },
+  { id: "settings" as const, label: "Config" },
 ] as const;
 
 export function Dock() {
@@ -27,30 +26,37 @@ export function Dock() {
         initial={{ y: 80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 280, damping: 24 }}
-        className="pointer-events-auto flex items-center gap-1 rounded-[28px] border border-border bg-card/90 px-3 py-2 shadow-[var(--shadow-window)] backdrop-blur-xl"
+        className="pointer-events-auto flex items-center gap-1 rounded-[28px] border border-white/10 bg-zinc-900/90 px-4 py-3 shadow-[var(--shadow-window)] backdrop-blur-md"
       >
         {ITEMS.map(({ id, label }) => {
           const active = screen === id;
-          const src = ICON_SRCS[id];
           return (
             <motion.button
               key={id}
+              type="button"
               onClick={() => setScreen(id)}
               whileTap={{ scale: 0.88 }}
               className={cn(
-                "relative flex h-12 w-12 flex-col items-center justify-center gap-0.5 rounded-2xl transition-colors",
+                "hok-dock-item relative flex h-[64px] w-[68px] flex-col items-center justify-center gap-1 rounded-2xl transition-colors",
                 active
-                  ? "bg-[color:var(--amber)]/15 text-[color:var(--amber)]"
+                  ? "bg-[color:var(--amber)]/15 text-[color:var(--amber)] ring-1 ring-[color:var(--amber)]/40"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
               aria-label={label}
+              aria-current={active ? "page" : undefined}
+              data-testid={`button-dock-${id}`}
             >
-              <img src={src} alt={label} className="h-5 w-5 object-contain" />
-              <span className="text-[9px] font-medium">{label}</span>
+              <img
+                src={ICON_SRCS[id]}
+                alt=""
+                aria-hidden="true"
+                className={cn("h-9 w-9 rounded-lg object-cover transition-opacity", active ? "opacity-100" : "opacity-70")}
+              />
+              <span className="text-[10px] font-semibold tracking-wide">{label}</span>
               {active && (
                 <motion.span
                   layoutId="dock-indicator"
-                  className="absolute -bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-[color:var(--amber)]"
+                  className="absolute -bottom-1 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-[color:var(--amber)]"
                 />
               )}
             </motion.button>
