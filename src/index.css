@@ -236,7 +236,7 @@
 @keyframes spin-slow { to { transform: rotate(360deg); } }
 .animate-spin-slow { animation: spin-slow 6s linear infinite; }
 
-/* ── Logo Hok-Orquestrador (branding) ── */
+/* ── Logo HOK OS (branding) ── */
 .hok-title {
   font-family: 'PoppinsExtraBoldItalic', 'Poppins', 'Montserrat', sans-serif;
   font-style: italic;

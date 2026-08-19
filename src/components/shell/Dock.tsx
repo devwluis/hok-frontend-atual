@@ -26,7 +26,7 @@ export function Dock() {
         initial={{ y: 80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 280, damping: 24 }}
-        className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/10 bg-zinc-900/90 px-4 py-3 shadow-[var(--shadow-window)] backdrop-blur-md"
+        className="pointer-events-auto flex items-center gap-1 rounded-full border border-border bg-popover/90 px-4 py-3 shadow-[var(--shadow-window)] backdrop-blur-md"
       >
         {ITEMS.map(({ id, label }) => {
           const active = screen === id;

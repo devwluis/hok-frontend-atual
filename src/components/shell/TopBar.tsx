@@ -37,7 +37,7 @@ export function TopBar() {
           transition={{ type: "spring", stiffness: 260, damping: 18 }}
         />
         <div className="hok-title hok-title--compact">
-          <span className="hok">HOK</span><span className="orquestrador">-ORQUESTRADOR</span>
+          <span className="hok">HOK</span><span className="orquestrador"> OS</span>
         </div>
       </div>
 

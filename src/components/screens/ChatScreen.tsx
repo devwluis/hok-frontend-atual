@@ -1198,9 +1198,17 @@ export function ChatScreen() {
                       <span className={cn("flex items-center gap-2", ENGINE_BRAND[opt.id], opt.id === "auto" && "font-mono text-[11px]")}>
                         {opt.Icon && <opt.Icon className="h-3.5 w-3.5 shrink-0" />}
                         {opt.id === "hok" ? (
-                          <><span className="hok-h">Hok</span><span className="hok-orq"> Orquestrador</span></>
-                        ) : opt.label}
-                        {opt.sub && <span className="text-[9px] text-muted-foreground">({opt.sub})</span>}
+                          <span className="inline-flex items-center gap-1.5 rounded-md bg-black px-1.5 py-0.5">
+                            <span className="hok-h">Hok</span>
+                            <span className="hok-orq">Orquestrador</span>
+                            {opt.sub && <span className="text-[9px] text-white/70">({opt.sub})</span>}
+                          </span>
+                        ) : (
+                          <>
+                            {opt.label}
+                            {opt.sub && <span className="text-[9px] text-muted-foreground">({opt.sub})</span>}
+                          </>
+                        )}
                       </span>
                       {forcedEngine === opt.id && <span className="text-[color:var(--amber)]">✔</span>}
                     </button>
