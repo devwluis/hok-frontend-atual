@@ -73,16 +73,23 @@ function CreditCardHeader({ icon, title, subtitle, onRefresh, loading, statusBad
   );
 }
 
-function CreditGridCell({ label, value, highlight, border }: {
+function CreditGridCell({ label, value, highlight, danger }: {
   label: string;
   value: string;
   highlight?: boolean;
-  border?: boolean;
+  danger?: boolean;
 }) {
   return (
-    <div className={cn("rounded-xl bg-muted/60 px-3 py-2.5", border && "border border-[#10b981]/40")}>
+    <div className={cn(
+      "rounded-xl px-3 py-2.5",
+      danger ? "border border-red-500/20 bg-red-500/10" : "bg-muted/60",
+      highlight && !danger && "border border-[#10b981]/40",
+    )}>
       <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className={cn("mt-0.5 font-mono text-sm font-semibold", highlight ? "text-emerald-400" : "text-foreground")}>
+      <p className={cn(
+        "mt-0.5 font-mono text-sm font-semibold",
+        danger ? "text-red-400" : highlight ? "text-emerald-400" : "text-foreground",
+      )}>
         {value}
       </p>
     </div>
@@ -223,8 +230,8 @@ export function SettingsScreen() {
             <>
               <div className="grid grid-cols-3 gap-2">
                 <CreditGridCell label="Total carregado" value={`$${total.toFixed(2)}`} />
-                <CreditGridCell label="Gasto até o momento" value={`$${gasto.toFixed(2)}`} />
-                <CreditGridCell label="Saldo atual" value={`$${saldo.toFixed(2)}`} highlight border />
+                <CreditGridCell label="Gasto até o momento" value={`$${gasto.toFixed(2)}`} danger />
+                <CreditGridCell label="Saldo atual" value={`$${saldo.toFixed(2)}`} highlight />
               </div>
               {detail && (
                 <p className="text-[10px] text-muted-foreground/70">Uso no mês: {detail}</p>
@@ -272,8 +279,8 @@ export function SettingsScreen() {
             <>
               <div className="grid grid-cols-3 gap-2">
                 <CreditGridCell label="Total carregado" value={`$${total.toFixed(2)}`} />
-                <CreditGridCell label="Gasto até o momento" value={`$${gasto.toFixed(2)}`} />
-                <CreditGridCell label="Saldo atual" value={`$${saldo.toFixed(2)}`} highlight border />
+                <CreditGridCell label="Gasto até o momento" value={`$${gasto.toFixed(2)}`} danger />
+                <CreditGridCell label="Saldo atual" value={`$${saldo.toFixed(2)}`} highlight />
               </div>
               {detail && (
                 <p className="text-[10px] text-muted-foreground/70">Uso no mês: {detail}</p>

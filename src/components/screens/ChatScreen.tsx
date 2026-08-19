@@ -454,20 +454,25 @@ export function ChatScreen() {
     }
   }, [showModelsPicker, modelsList, modelMenuRetry]);
 
-  const selectModel = async (modelId: string) => {
+  const selectModel = (modelId: string) => {
+    // Atualiza estado e fecha o catálogo imediatamente (label do botão
+    // compacto muda na hora); o POST /models/select roda em background.
+    setSelectedModel(modelId);
+    setShowModelsPicker(false);
     try {
       const { serverUrl, token } = readSettings();
       if (!serverUrl || !token) return;
-      await fetch(`${serverUrl}/models/select`, {
+      fetch(`${serverUrl}/models/select`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Hok-Token": token },
         body: JSON.stringify({ model: modelId }),
-      });
-      setActiveModelId(modelId);
-      invalidateModelsCache();
+      })
+        .then(() => {
+          setActiveModelId(modelId);
+          invalidateModelsCache();
+        })
+        .catch(() => { /* ignore */ });
     } catch { /* ignore */ }
-    setSelectedModel(modelId);
-    setShowModelsPicker(false);
   };
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const pendingActionRef = useRef<PendingAction | null>(null);
@@ -855,7 +860,7 @@ export function ChatScreen() {
     <OwnerGate label="Chat">
     <div className="flex h-full flex-col bg-background">
       {/* ── Messages ── */}
-      <div ref={scrollRef} onScroll={handleScroll} className="thin-scroll flex-1 overflow-y-auto px-4 py-4">
+      <div ref={scrollRef} onScroll={handleScroll} className="thin-scroll flex-1 overflow-y-auto px-4 pt-4 pb-28">
         {messages.length === 0 && !loading && (
           <div className="flex h-full items-center justify-center">
             <NuclearCore />
@@ -969,7 +974,7 @@ export function ChatScreen() {
       <input ref={audioInputRef} type="file" accept="audio/*" multiple className="hidden" onChange={handleAudioChange} />
 
       {/* ── Input area ── */}
-      <div className="hok-composer relative border-t border-border bg-background/90 px-4 pb-[calc(env(safe-area-inset-bottom)+80px)] pt-3 backdrop-blur-xl">
+      <div className="hok-composer relative z-50 border-t border-border bg-background/90 px-4 pb-[calc(env(safe-area-inset-bottom)+80px)] pt-3 backdrop-blur-xl">
 
         {/* Attachment preview strip */}
         <AnimatePresence>
