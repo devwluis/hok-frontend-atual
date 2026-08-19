@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=Space+Grotesk:wght@500;600;700&family=Inter:wght@600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Fira+Code:wght@500;600;700&display=swap');
 @import 'tailwindcss' source(none);
 @source "../src";
 @import 'tw-animate-css';
@@ -213,38 +213,44 @@
 
 /* ── Tipografia dos motores de processamento (fonte original de cada marca) ── */
 .engine-font-hok {
-  font-family: "Space Grotesk", "Avenir Next", "Century Gothic", sans-serif;
+  font-family: "Fira Code", "Cascadia Code", ui-monospace, "SF Mono", Consolas, monospace;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--amber);
+  letter-spacing: 0.02em;
+  color: #E5C07B;
 }
 .engine-font-claude {
-  font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+  font-family: ui-monospace, "SF Mono", "Menlo", Consolas, monospace;
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: #e8927c;
+  color: #D97757;
+  background: linear-gradient(135deg, #f87171, #d97757, #fbbf24, #34d399, #60a5fa, #818cf8, #a78bfa);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 .engine-font-hermes {
-  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-family: ui-monospace, "SF Mono", "Menlo", Consolas, monospace;
   font-weight: 700;
-  letter-spacing: 0.01em;
-  color: #7c9cff;
+  letter-spacing: 0.02em;
+  color: #22d3ee;
 }
 .engine-font-opencode {
   font-family: "JetBrains Mono", "Fira Code", ui-monospace, "SF Mono", Consolas, monospace;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: #a78bfa;
-  background: linear-gradient(135deg, #a78bfa, #22d3ee);
+  color: #fab283;
+  background: linear-gradient(135deg, #fab283, #9d7cd8);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 @supports not (-webkit-background-clip: text) {
+  .engine-font-claude,
   .engine-font-opencode {
     -webkit-text-fill-color: currentColor;
-    color: #a78bfa;
   }
+  .engine-font-claude { color: #D97757; }
+  .engine-font-opencode { color: #fab283; }
 }
 
 /* Botão console dos seletores IA/ENGINE (UX v5) */
