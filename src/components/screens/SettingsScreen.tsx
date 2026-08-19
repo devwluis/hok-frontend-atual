@@ -219,9 +219,12 @@ export function SettingsScreen() {
           <p className="text-xs text-muted-foreground">Carregando...</p>
         )}
         {credits.data && (() => {
-          const total = credits.data.total_credits ?? (credits.data.balance ?? 0) + (credits.data.usage_total ?? 0);
-          const gasto = credits.data.usage_total ?? credits.data.usage_monthly ?? 0;
-          const saldo = credits.data.balance ?? Math.max(0, total - gasto);
+          const d = credits.data;
+          const total = d.total_credits ?? (d.balance ?? 0) + (d.usage_total ?? 0);
+          const saldo = d.balance != null
+            ? d.balance
+            : Math.max(0, total - (d.usage_total ?? d.usage_monthly ?? 0));
+          const gasto = Math.max(0, total - saldo);
           const detail = [
             credits.data.usage_monthly != null && `mês: $${credits.data.usage_monthly.toFixed(2)}`,
             credits.data.usage_weekly != null && `semana: $${credits.data.usage_weekly.toFixed(2)}`,

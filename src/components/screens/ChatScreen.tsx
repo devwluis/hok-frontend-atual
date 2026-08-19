@@ -974,7 +974,7 @@ export function ChatScreen() {
       <input ref={audioInputRef} type="file" accept="audio/*" multiple className="hidden" onChange={handleAudioChange} />
 
       {/* ── Input area ── */}
-      <div className="hok-composer relative z-50 border-t border-border bg-background/90 px-4 pb-[calc(env(safe-area-inset-bottom)+80px)] pt-3 backdrop-blur-xl">
+      <div className="hok-composer relative z-50 border-t border-border bg-background/90 px-4 pb-[calc(env(safe-area-inset-bottom)+128px)] pt-3 backdrop-blur-xl">
 
         {/* Attachment preview strip */}
         <AnimatePresence>

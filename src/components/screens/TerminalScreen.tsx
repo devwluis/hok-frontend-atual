@@ -73,11 +73,17 @@ export function TerminalScreen() {
         ws.send(JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows }));
       }
       const term = termRef.current;
-      if (term) term.writeln("\r\n\x1b[32m● sessão PTY real iniciada\x1b[0m (Ctrl+D sai)");
+      if (term) {
+        term.writeln("\r\n\x1b[32m● sessão PTY real iniciada\x1b[0m (Ctrl+D sai)");
+        term.scrollToBottom();
+      }
     };
 
     ws.onmessage = (ev) => {
-      if (typeof ev.data === "string") termRef.current?.write(ev.data);
+      if (typeof ev.data === "string") {
+        termRef.current?.write(ev.data);
+        termRef.current?.scrollToBottom();
+      }
     };
 
     ws.onclose = () => {
@@ -130,6 +136,7 @@ export function TerminalScreen() {
     const onResize = () => {
       try {
         fit.fit();
+        termRef.current?.scrollToBottom();
         const dims = fit.proposeDimensions();
         if (dims && wsRef.current?.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows }));
@@ -161,7 +168,7 @@ export function TerminalScreen() {
   const statusLabel = conn === "live" ? "LIVE" : conn === "connecting" ? "CONECTANDO…" : "OFFLINE";
 
   return (
-    <div className="flex h-full flex-col bg-[#0d1117] pb-24 font-mono text-emerald-400">
+    <div className="flex h-full flex-col bg-[#0d1117] pb-36 font-mono text-emerald-400">
       <div className="flex items-center justify-between border-b border-emerald-900/40 px-3 py-2 text-[11px]">
         <span className="flex items-center gap-1.5 text-emerald-300/80">
           <TermIcon className="h-3.5 w-3.5" />
@@ -198,7 +205,7 @@ export function TerminalScreen() {
         ))}
       </div>
 
-      <div ref={hostRef} className="min-h-0 flex-1 px-1.5 py-1.5" />
+      <div ref={hostRef} className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5" />
     </div>
   );
 }
