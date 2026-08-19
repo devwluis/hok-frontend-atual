@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw } from "lucide-react";
+import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw, CornerDownLeft, CornerUpLeft, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { cn } from "@/lib/utils";
 
 const SETTINGS_KEY = "hokma.settings.v1";
 const TERMINAL_STATE_KEY = "hokma.terminal.state.v1";
@@ -69,14 +70,37 @@ const QUICK = [
 ];
 
 type Conn = "idle" | "connecting" | "live" | "offline";
+type ArmedMod = "none" | "ctrl" | "alt";
+
+// Mapeia tecla única (do teclado do sistema) para o código de controle Ctrl+<tecla>
+function ctrlCode(data: string): string | null {
+  if (data.length !== 1) return null;
+  const code = data.charCodeAt(0);
+  if (code >= 97 && code <= 122) return String.fromCharCode(code - 96); // a-z -> 1-26
+  if (code >= 65 && code <= 90) return String.fromCharCode(code - 64); // A-Z
+  switch (data) {
+    case "[": return "\x1b"; // Ctrl+[ == Esc
+    case "]": return "\x1d";
+    case "\\": return "\x1c";
+    case "^": return "\x1e";
+    case "_": return "\x1f";
+    case " ": return "\x00";
+    case "?": return "\x7f";
+    default: return null;
+  }
+}
 
 export function TerminalScreen() {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const armedRef = useRef<ArmedMod>("none");
   const [conn, setConn] = useState<Conn>("idle");
   const [note, setNote] = useState("");
+  const [armed, setArmed] = useState<ArmedMod>("none");
+  const [focused, setFocused] = useState(false);
+  const [kbInset, setKbInset] = useState(0);
 
   const teardown = () => {
     try { wsRef.current?.close(); } catch { /* noop */ }
@@ -147,6 +171,30 @@ export function TerminalScreen() {
     }
   };
 
+  // ── Modificadores sticky (Ctrl/Alt) para teclado touch ──
+  // Sempre refoca a textarea do xterm após tocar a barra: o toque num botão
+  // roubaria o foco e fecharia o teclado virtual — refocar mantém o teclado
+  // aberto e captura a próxima tecla do teclado do sistema.
+  const refocusTerminal = () => {
+    try { termRef.current?.textarea?.focus(); } catch { /* ignore */ }
+    setFocused(true); // o toque no botão dispara blur na textarea; garante a barra visível
+  };
+  const setMod = (mod: ArmedMod) => {
+    armedRef.current = mod;
+    setArmed(mod);
+    refocusTerminal();
+  };
+  const pressCtrl = () => setMod(armedRef.current === "ctrl" ? "none" : "ctrl");
+  const pressAlt = () => setMod(armedRef.current === "alt" ? "none" : "alt");
+  const pressCtrlC = () => { setMod("none"); writeToShell("\x03"); };
+  const pressCtrlD = () => { setMod("none"); writeToShell("\x04"); };
+  const pressEsc = () => { setMod("none"); writeToShell("\x1b"); };
+  const pressTab = () => { setMod("none"); writeToShell("\x09"); };
+  const pressArrow = (dir: "up" | "down" | "left" | "right") => {
+    setMod("none");
+    writeToShell(dir === "up" ? "\x1b[A" : dir === "down" ? "\x1b[B" : dir === "right" ? "\x1b[C" : "\x1b[D");
+  };
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host || termRef.current) return;
@@ -176,7 +224,29 @@ export function TerminalScreen() {
     termRef.current = term;
     fitRef.current = fit;
 
-    term.onData((data) => writeToShell(data));
+    term.onData((data) => {
+      const mod = armedRef.current;
+      if (mod !== "none") {
+        // Desarma sempre após a próxima tecla (comportamento "sticky one-shot")
+        armedRef.current = "none";
+        setArmed("none");
+        if (mod === "ctrl") {
+          const code = ctrlCode(data);
+          if (code) { writeToShell(code); return; }
+        } else if (mod === "alt") {
+          if (data.length === 1) { writeToShell("\x1b" + data); return; }
+        }
+      }
+      writeToShell(data);
+    });
+
+    // Detecta foco do input do terminal (textarea oculto do xterm) para
+    // mostrar a barra de teclas especiais acima do teclado virtual.
+    const ta = host.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
+    if (ta) {
+      ta.addEventListener("focus", () => setFocused(true));
+      ta.addEventListener("blur", () => setFocused(false));
+    }
 
     // Restaura a última sessão (histórico visível) antes de conectar —
     // o usuário vê o terminal exatamente como deixou.
@@ -227,11 +297,34 @@ export function TerminalScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Altura do teclado virtual (Android): quando abre, o visualViewport encolhe.
+  // Usa isso para ancorar a barra de teclas logo acima do teclado.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onVV = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height);
+      setKbInset(inset);
+    };
+    vv.addEventListener("resize", onVV);
+    vv.addEventListener("scroll", onVV);
+    onVV();
+    return () => {
+      vv.removeEventListener("resize", onVV);
+      vv.removeEventListener("scroll", onVV);
+    };
+  }, []);
+
   const statusColor = conn === "live" ? "#22c55e" : conn === "connecting" ? "#f59e0b" : "#ef4444";
   const statusLabel = conn === "live" ? "LIVE" : conn === "connecting" ? "CONECTANDO…" : "OFFLINE";
 
+  const showKeysBar = focused || armed !== "none";
+  const keyBase = "flex h-8 min-w-[30px] shrink-0 select-none items-center justify-center rounded-lg border px-1 text-[9px] font-mono transition-colors active:scale-95";
+  const keyIdle = "border-emerald-900/50 bg-emerald-500/5 text-emerald-300 hover:bg-emerald-500/15";
+  const keyActive = "border-emerald-300/70 bg-emerald-500/30 text-white ring-1 ring-emerald-400/60";
+
   return (
-    <div className="flex h-full flex-col bg-[#0d1117] pb-36 font-mono text-emerald-400">
+    <div className="relative flex h-full flex-col bg-[#0d1117] pb-36 font-mono text-emerald-400">
       <div className="flex items-center justify-between border-b border-emerald-900/40 px-3 py-2 text-[11px]">
         <span className="flex items-center gap-1.5 text-emerald-300/80">
           <TermIcon className="h-3.5 w-3.5" />
@@ -269,6 +362,38 @@ export function TerminalScreen() {
       </div>
 
       <div ref={hostRef} className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5" />
+
+      {/* ── Barra de teclas especiais (mobile) — ancorada acima do teclado virtual ── */}
+      <div
+        className="pointer-events-none absolute inset-x-0 z-40 px-2"
+        style={{ bottom: showKeysBar ? kbInset + (kbInset > 0 ? 8 : 116) : -64, transition: "bottom 0.18s ease" }}
+        data-testid="special-keys-bar"
+      >
+        <div className="pointer-events-auto thin-scroll mx-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-2xl border border-emerald-900/50 bg-[#0d1117]/95 px-1.5 py-1 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm">
+          <button type="button" onClick={pressCtrl} data-testid="key-ctrl"
+            className={cn(keyBase, armed === "ctrl" ? keyActive : keyIdle)}>Ctrl</button>
+          <button type="button" onClick={pressAlt} data-testid="key-alt"
+            className={cn(keyBase, armed === "alt" ? keyActive : keyIdle)}>Alt</button>
+          <button type="button" onClick={pressEsc} data-testid="key-esc"
+            className={cn(keyBase, keyIdle)}>Esc</button>
+          <button type="button" onClick={pressTab} data-testid="key-tab"
+            className={cn(keyBase, keyIdle)}>Tab</button>
+          <span className="mx-0.5 h-5 w-px shrink-0 bg-emerald-900/40" />
+          <button type="button" onClick={pressCtrlC} data-testid="key-ctrlc"
+            className={cn(keyBase, keyIdle, "text-red-300")}>Ctrl<span className="ml-0.5 text-[8px]">C</span></button>
+          <button type="button" onClick={pressCtrlD} data-testid="key-ctrld"
+            className={cn(keyBase, keyIdle, "text-red-300")}>Ctrl<span className="ml-0.5 text-[8px]">D</span></button>
+          <span className="mx-0.5 h-5 w-px shrink-0 bg-emerald-900/40" />
+          <button type="button" onClick={() => pressArrow("up")} data-testid="key-up"
+            className={cn(keyBase, keyIdle)} aria-label="Seta para cima"><ArrowUp className="h-3 w-3" /></button>
+          <button type="button" onClick={() => pressArrow("down")} data-testid="key-down"
+            className={cn(keyBase, keyIdle)} aria-label="Seta para baixo"><ArrowDown className="h-3 w-3" /></button>
+          <button type="button" onClick={() => pressArrow("left")} data-testid="key-left"
+            className={cn(keyBase, keyIdle)} aria-label="Seta para a esquerda"><ArrowLeft className="h-3 w-3" /></button>
+          <button type="button" onClick={() => pressArrow("right")} data-testid="key-right"
+            className={cn(keyBase, keyIdle)} aria-label="Seta para a direita"><ArrowRight className="h-3 w-3" /></button>
+        </div>
+      </div>
     </div>
   );
 }
