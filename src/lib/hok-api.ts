@@ -11,7 +11,7 @@ function getOrCreateConversationId(): string {
 
 const SETTINGS_KEY = "hokma.settings.v1";
 
-function readSettings(): { serverUrl: string; token: string } {
+export function readSettings(): { serverUrl: string; token: string } {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return { serverUrl: "", token: "" };

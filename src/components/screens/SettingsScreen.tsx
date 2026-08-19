@@ -1,9 +1,12 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Eye, EyeOff, Check, Save, AlertCircle, Server } from "lucide-react";
+import { Eye, EyeOff, Check, Save, AlertCircle, Server, RefreshCw, Zap } from "lucide-react";
 import { ScreenFrame, ScreenHeader, Card } from "@/components/shell/ScreenFrame";
 import { usePersistentState } from "@/lib/use-persistent-state";
 import { hokGet } from "@/lib/hok-api";
+import { useOpenRouterCredits } from "@/hooks/use-openrouter-credits";
+import { useOpenCodeStatus } from "@/hooks/use-opencode-status";
+import { cn } from "@/lib/utils";
 
 // Unified settings key — same as SettingsModal
 const SETTINGS_KEY = "hokma.settings.v1";
@@ -11,40 +14,38 @@ const SETTINGS_KEY = "hokma.settings.v1";
 // Mapeia campos da tela para as chaves do backend (GET /settings devolve
 // <key>Configured como boolean — sem valores em texto puro)
 const SERVER_KEY_MAP: Record<string, string> = {
-  DeepSeek: "deepseekKey",
   OpenRouter: "openrouterKey",
-  Gemini: "geminiKey",
-  OpenAI: "openaiKey",
-  Groq: "groqKey",
-  Anthropic: "anthropicKey",
 };
 
+// Painel enxuto para clientes: apenas conexão do servidor + chave OpenRouter.
+// As demais chaves de provedores são configuradas no servidor (server-side).
 const KEYS = [
   { k: "Server URL", placeholder: "https://api.hokma.dev", description: "URL base do servidor HOK externo" },
   { k: "HOK_TOKEN", placeholder: "hok_••••••••", description: "Token de autenticação do servidor" },
-  { k: "DeepSeek", placeholder: "ds_•••", description: "API Key DeepSeek" },
-  { k: "OpenRouter", placeholder: "or_•••", description: "API Key OpenRouter" },
-  { k: "Gemini", placeholder: "gm_•••", description: "API Key Google Gemini" },
-  { k: "OpenAI", placeholder: "sk_•••", description: "API Key OpenAI" },
-  { k: "Groq", placeholder: "gq_•••", description: "API Key Groq (usado pelo AI interno)" },
-  { k: "Anthropic", placeholder: "an_•••", description: "API Key Anthropic Claude" },
+  { k: "OpenRouter", placeholder: "or_•••", description: "API Key OpenRouter (para o painel de créditos)" },
 ];
+
+function formatReset(iso: string | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export function SettingsScreen() {
   const [shown, setShown] = useState<Record<string, boolean>>({});
   const [vals, setVals] = usePersistentState<Record<string, string>>(SETTINGS_KEY, {});
   const [savedAt, setSavedAt] = useState<Record<string, number>>({});
-  const [credits, setCredits] = useState<{
-    usage_monthly: number;
-    limit: number | null;
-    limit_remaining: number | null;
-    balance?: number;
-    total_credits?: number;
-    total_usage?: number;
-  } | null>(null);
-  const [creditsError, setCreditsError] = useState<string | null>(null);
   const [serverConfigured, setServerConfigured] = useState<Record<string, boolean> | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
+
+  const credits = useOpenRouterCredits();
+  const opencode = useOpenCodeStatus();
 
   const markSaved = (k: string) => {
     setSavedAt((s) => ({ ...s, [k]: Date.now() }));
@@ -57,15 +58,6 @@ export function SettingsScreen() {
     }, 1500);
   };
 
-  useEffect(() => {
-    const url = (vals["Server URL"] || window.location.origin).replace(/\/$/, "");
-    const token = vals["HOK_TOKEN"] || "";
-    if (!token) return;
-    fetch(`${url}/openrouter/credits`, { headers: { "X-Hok-Token": token } })
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d) => setCredits(d))
-      .catch((e) => setCreditsError(e instanceof Error ? e.message : "Erro desconhecido"));
-  }, [vals]);
   const serverUrl = vals["Server URL"] || "";
   const hokToken = vals["HOK_TOKEN"] || "";
   const showWarning = serverUrl && !hokToken;
@@ -88,7 +80,7 @@ export function SettingsScreen() {
 
   return (
     <ScreenFrame>
-      <ScreenHeader title="Settings" subtitle="Conexões, tokens e chaves de API." />
+      <ScreenHeader title="Settings" subtitle="Conexões, tokens e consumo do servidor." />
 
       {showWarning && (
         <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-600 dark:text-amber-400">
@@ -149,49 +141,131 @@ export function SettingsScreen() {
           Estado do servidor indisponível: {serverError}
         </div>
       )}
+
+      {/* ── Card OpenRouter ── */}
       <Card className="mt-4 space-y-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          💳 OpenRouter
-        </h3>
-        {creditsError && (
-          <p className="text-xs text-destructive">Nao foi possivel carregar: {creditsError}</p>
+        <div className="flex items-center justify-between">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            💳 OpenRouter
+          </h3>
+          <button
+            onClick={credits.refresh}
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[color:var(--amber)]/10 hover:text-[color:var(--amber)]"
+            aria-label="Sincronizar créditos"
+            data-testid="button-credits-refresh"
+          >
+            <RefreshCw className={cn("h-4 w-4", credits.loading && "animate-spin")} />
+          </button>
+        </div>
+        {credits.error && (
+          <p className="text-xs text-destructive">Não foi possível carregar: {credits.error}</p>
         )}
-        {!creditsError && !credits && (
+        {!credits.error && !credits.data && (
           <p className="text-xs text-muted-foreground">Carregando...</p>
         )}
-        {credits && (
+        {credits.data && (
           <div className="space-y-1 text-sm">
-            {credits.balance != null && (
+            {credits.data.balance != null && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Saldo</span>
-                <span className="font-mono font-semibold text-base">${credits.balance.toFixed(2)}</span>
+                <span className="font-mono font-semibold text-base">${credits.data.balance.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between rounded-lg bg-red-500/10 px-3 py-1.5">
+              <span className="text-muted-foreground">Gasto este mês</span>
+              <span className="font-mono font-semibold text-destructive">${credits.data.usage_monthly.toFixed(2)}</span>
+            </div>
+            {credits.data.total_credits != null && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Total comprado</span>
+                <span className="font-mono">${credits.data.total_credits.toFixed(2)}</span>
+              </div>
+            )}
+            {credits.data.limit != null && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Limite da chave</span>
+                <span className="font-mono">${credits.data.limit.toFixed(2)}</span>
+              </div>
+            )}
+            {credits.data.limit_remaining != null && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Restante (chave)</span>
+                <span className="font-mono">${credits.data.limit_remaining.toFixed(2)}</span>
+              </div>
+            )}
+            {credits.data.limit == null && credits.data.balance == null && (
+              <p className="text-[11px] text-muted-foreground/70">Esta chave não tem limite configurado.</p>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* ── Card Assinatura OpenCode Go ── */}
+      <Card className="mt-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <Zap className="h-3.5 w-3.5 text-[color:var(--amber)]" />
+            Assinatura OpenCode Go
+          </h3>
+          <button
+            onClick={opencode.refresh}
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[color:var(--amber)]/10 hover:text-[color:var(--amber)]"
+            aria-label="Sincronizar OpenCode Go"
+            data-testid="button-opencode-refresh"
+          >
+            <RefreshCw className={cn("h-4 w-4", opencode.loading && "animate-spin")} />
+          </button>
+        </div>
+        {opencode.error && (
+          <p className="text-xs text-destructive">{opencode.error}</p>
+        )}
+        {!opencode.error && !opencode.data && (
+          <p className="text-xs text-muted-foreground">Carregando...</p>
+        )}
+        {opencode.data && (
+          <div className="space-y-1 text-sm">
+            {opencode.data.subscribed ? (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Status</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-500">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  Ativo
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Status</span>
+                <span className="text-xs text-muted-foreground">Inativo</span>
+              </div>
+            )}
+            {opencode.data.monthly && (
+              <div className="flex items-center justify-between rounded-lg bg-red-500/10 px-3 py-1.5">
+                <span className="text-muted-foreground">Uso no Mês</span>
+                <span className="font-mono font-semibold text-destructive">
+                  {opencode.data.monthly.percent}% (${opencode.data.monthly.usedDollars} / ${opencode.data.monthly.limitDollars})
+                </span>
+              </div>
+            )}
+            {opencode.data.rolling && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Uso (5h)</span>
+                <span className="font-mono">
+                  {opencode.data.rolling.percent}% (${opencode.data.rolling.usedDollars} / ${opencode.data.rolling.limitDollars})
+                </span>
+              </div>
+            )}
+            {opencode.data.weekly && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Uso (semana)</span>
+                <span className="font-mono">
+                  {opencode.data.weekly.percent}% (${opencode.data.weekly.usedDollars} / ${opencode.data.weekly.limitDollars})
+                </span>
               </div>
             )}
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Gasto este mes</span>
-              <span className="font-mono">${credits.usage_monthly.toFixed(2)}</span>
+              <span className="text-muted-foreground">Renovação</span>
+              <span className="font-mono">{formatReset(opencode.data.monthly?.resetsAt)}</span>
             </div>
-            {credits.total_credits != null && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Total comprado</span>
-                <span className="font-mono">${credits.total_credits.toFixed(2)}</span>
-              </div>
-            )}
-            {credits.limit != null && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Limite da chave</span>
-                <span className="font-mono">${credits.limit.toFixed(2)}</span>
-              </div>
-            )}
-            {credits.limit_remaining != null && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Restante (chave)</span>
-                <span className="font-mono">${credits.limit_remaining.toFixed(2)}</span>
-              </div>
-            )}
-            {credits.limit == null && credits.balance == null && (
-              <p className="text-[11px] text-muted-foreground/70">Esta chave nao tem limite configurado.</p>
-            )}
           </div>
         )}
       </Card>

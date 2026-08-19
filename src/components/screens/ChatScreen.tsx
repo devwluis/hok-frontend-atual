@@ -27,8 +27,8 @@ type EngineId = "auto" | "hok" | "claude" | "opencode" | "hermes";
 const ENGINE_OPTIONS: { id: EngineId; label: string; sub?: string; Icon?: (p: { className?: string }) => React.ReactNode }[] = [
   { id: "auto", label: "Automático", sub: "recomendado", Icon: AutomaticIcon },
   { id: "hok", label: "Hok Orquestrador", sub: "padrão" },
-  { id: "claude", label: "Claude Code", Icon: ClaudeCodeIcon },
-  { id: "opencode", label: "OpenCode", Icon: OpenCodeIcon },
+  { id: "claude", label: "Claude Code Terminal", Icon: ClaudeCodeIcon },
+  { id: "opencode", label: "OpenCode Terminal", Icon: OpenCodeIcon },
   { id: "hermes", label: "Hermes", Icon: HermesIcon },
 ];
 function readForcedEngine(): EngineId {
@@ -429,7 +429,6 @@ export function ChatScreen() {
   const [showEnginePicker, setShowEnginePicker] = useState(false);
   const [showModelsPicker, setShowModelsPicker] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
-  const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [modelMenuError, setModelMenuError] = useState<string | null>(null);
   const [modelMenuRetry, setModelMenuRetry] = useState(0);
   const [modelsList, setModelsList] = useState<{ paid: HokModel[]; free: HokModel[]; zen: HokModel[] } | null>(null);
@@ -1187,7 +1186,7 @@ export function ChatScreen() {
                       <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-3 gap-1">
+                  <div className="grid grid-cols-2 gap-1">
                     <button
                       type="button"
                       onClick={() => { photoInputRef.current?.click(); setShowAttachMenu(false); }}
@@ -1205,6 +1204,34 @@ export function ChatScreen() {
                     >
                       <Paperclip className="h-4 w-4" />
                       Arquivo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setWebSearch((v) => !v); setShowAttachMenu(false); }}
+                      className={cn(
+                        "flex flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-[10px] transition-colors",
+                        webSearch
+                          ? "bg-[color:var(--amber)]/10 text-[color:var(--amber)]"
+                          : "text-muted-foreground hover:bg-[color:var(--amber)]/10 hover:text-[color:var(--amber)]",
+                      )}
+                      data-testid="button-web-search"
+                    >
+                      <Globe className="h-4 w-4" />
+                      Busca Web
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setDebugMode((v) => !v); setShowAttachMenu(false); }}
+                      className={cn(
+                        "flex flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-[10px] transition-colors",
+                        debugMode
+                          ? "bg-red-500/10 text-red-500"
+                          : "text-muted-foreground hover:bg-red-500/10 hover:text-red-500",
+                      )}
+                      data-testid="button-debug-mode"
+                    >
+                      <Bug className="h-4 w-4" />
+                      Debug
                     </button>
                   </div>
                 </motion.div>
@@ -1225,53 +1252,6 @@ export function ChatScreen() {
             style={{ maxHeight: 120 }}
           />
           <div className="flex items-center gap-1 pb-0.5">
-            {/* Tools: Busca web + Debug */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowToolsMenu((v) => !v)}
-                className={cn(
-                  "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
-                  showToolsMenu || webSearch
-                    ? "bg-[color:var(--amber)]/15 text-[color:var(--amber)]"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-                aria-label="Ferramentas"
-              >
-                <Globe className="h-4 w-4" />
-              </button>
-              <AnimatePresence>
-                {showToolsMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 5, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 5, scale: 0.98 }}
-                    className="absolute bottom-[calc(100%+8px)] right-0 z-40 w-[200px] rounded-2xl border border-border bg-popover p-1.5 shadow-[0_16px_34px_rgb(0_0_0/0.45)]"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setWebSearch((v) => !v)}
-                      className="flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-[11px] text-foreground transition-colors hover:bg-[color:var(--amber)]/10"
-                      data-testid="button-web-search"
-                    >
-                      <span className="flex items-center gap-2"><Globe className="h-3.5 w-3.5" /> Busca web</span>
-                      <span className={cn("h-1.5 w-1.5 rounded-full", webSearch ? "bg-emerald-400" : "bg-muted-foreground/40")} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDebugMode((v) => !v)}
-                      className="flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-[11px] text-foreground transition-colors hover:bg-[color:var(--amber)]/10"
-                      data-testid="button-debug-mode"
-                    >
-                      <span className="flex items-center gap-2"><Bug className="h-3.5 w-3.5" /> Debug</span>
-                      <span className={cn("h-1.5 w-1.5 rounded-full", debugMode ? "bg-red-400" : "bg-muted-foreground/40")} />
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              {showToolsMenu && <div className="fixed inset-0 z-30" onClick={() => setShowToolsMenu(false)} aria-hidden="true" />}
-            </div>
-
             {/* Mic */}
             <button
               type="button"

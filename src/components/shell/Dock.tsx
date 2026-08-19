@@ -8,7 +8,6 @@ const ICON_SRCS = {
   chat: "/icons/Chat-Hok.png",
   terminal: "/icons/terminal.png",
   n8n: "/icons/n8n.png",
-  models: "/icons/modelos.png",
   settings: "/icons/configuracao.png",
 } as const;
 
@@ -16,7 +15,6 @@ const ITEMS = [
   { id: "chat" as const, label: "Chat" },
   { id: "terminal" as const, label: "Terminal" },
   { id: "n8n" as const, label: "N8N" },
-  { id: "models" as const, label: "Modelos" },
   { id: "settings" as const, label: "Settings" },
 ] as const;
 
