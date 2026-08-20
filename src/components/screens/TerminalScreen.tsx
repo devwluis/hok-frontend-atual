@@ -93,6 +93,9 @@ export function TerminalScreen() {
   // true enquanto o usuário está no fundo do buffer (digitando/stream ao vivo);
   // false quando rolou pra cima de propósito (modo histórico — NÃO forçar scroll).
   const atBottomRef = useRef(true);
+  // Métricas do buffer (viewportY/baseY) para a scrollbar customizada real.
+  const [scrollInfo, setScrollInfo] = useState<{ v: number; b: number }>({ v: 0, b: 0 });
+  const trackRef = useRef<HTMLDivElement>(null);
 
   const writeToShell = (data: string) => write(data);
 
@@ -158,6 +161,7 @@ export function TerminalScreen() {
       try {
         const b = term.buffer.active;
         atBottomRef.current = b.viewportY >= b.baseY;
+        setScrollInfo({ v: b.viewportY, b: b.baseY });
       } catch { atBottomRef.current = true; }
     };
     updateAtBottom();
@@ -324,6 +328,43 @@ export function TerminalScreen() {
   const statusLabel = conn === "live" ? "LIVE" : conn === "connecting" ? "CONECTANDO…" : "OFFLINE";
 
   const showKeysBar = focused || armed !== "none";
+
+  // ── Scrollbar customizada real (buffer de 10000 linhas) ──
+  // Conectada ao xterm: term.onScroll atualiza scrollInfo e o drag chama
+  // term.scrollToLine() — navega o buffer DE VERDADE (não é decorativa).
+  const rows = termRef.current?.rows ?? 0;
+  const totalLines = scrollInfo.b + rows; // scrollback + viewport
+  const thumbHeightPct = totalLines > 0
+    ? Math.max(8, Math.min(100, (rows / totalLines) * 100))
+    : 100;
+  const thumbTopPct = scrollInfo.b > 0
+    ? (scrollInfo.v / scrollInfo.b) * (100 - thumbHeightPct)
+    : 0;
+  const atBottom = scrollInfo.b === 0 || scrollInfo.v >= scrollInfo.b;
+  const showScrollbar = scrollInfo.b > 0;
+
+  // Salta/arrasta: mapeia a posição do toque no trilho para uma linha do
+  // buffer (scrollToLine) e move o viewport do xterm.
+  const jumpTo = (clientY: number) => {
+    const track = trackRef.current;
+    const t = termRef.current;
+    if (!track || !t) return;
+    const b = t.buffer.active;
+    if (!b || b.baseY <= 0) return;
+    const rect = track.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+    const target = Math.round(ratio * b.baseY);
+    t.scrollToLine(Math.max(0, Math.min(b.baseY, target)));
+  };
+  const onTrackPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    jumpTo(e.clientY);
+  };
+  const onTrackPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.buttons !== 1) return;
+    jumpTo(e.clientY);
+  };
   const keyBase = "flex h-11 min-w-[44px] shrink-0 select-none items-center justify-center rounded-xl border px-2 text-[10px] font-mono transition-colors active:scale-95";
   const keyIdle = "border-emerald-900/50 bg-emerald-500/5 text-emerald-300 hover:bg-emerald-500/15";
   const keyActive = "border-emerald-300 bg-emerald-400 text-emerald-950 font-bold ring-2 ring-emerald-300/80 shadow-[0_0_14px_rgba(52,211,153,0.7)]";
@@ -369,7 +410,39 @@ export function TerminalScreen() {
         ))}
       </div>
 
-      <div ref={hostRef} className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5" />
+      <div className="relative min-h-0 flex-1">
+        <div ref={hostRef} className="h-full w-full overflow-hidden px-1.5 py-1.5" />
+
+        {/* Scrollbar customizada REAL: reflete a posição no buffer (10000
+            linhas) e controla o viewport via scrollToLine no drag/touch.
+            Só aparece quando há scrollback além da tela. */}
+        {showScrollbar && (
+          <div
+            ref={trackRef}
+            className="absolute right-0.5 top-1.5 bottom-1.5 z-10 w-2 cursor-pointer touch-none select-none"
+            onPointerDown={onTrackPointerDown}
+            onPointerMove={onTrackPointerMove}
+            data-testid="term-scrollbar-track"
+          >
+            <div
+              className="absolute left-0 w-full rounded-full bg-emerald-400/40 hover:bg-emerald-400/70"
+              style={{ top: `${thumbTopPct}%`, height: `${thumbHeightPct}%` }}
+            />
+          </div>
+        )}
+
+        {/* Indicador "modo histórico" — usuário rolou pra cima; tocar volta ao live */}
+        {showScrollbar && !atBottom && (
+          <button
+            type="button"
+            onClick={() => termRef.current?.scrollToBottom()}
+            className="absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full border border-emerald-700/60 bg-[#0d1117]/95 px-3 py-1 text-[10px] font-mono text-emerald-300 shadow-lg backdrop-blur-sm"
+            data-testid="term-back-to-live"
+          >
+            ↓ voltar ao live
+          </button>
+        )}
+      </div>
 
       {/* ── Barra de teclas especiais (mobile) — ancorada acima do teclado virtual ── */}
       <div

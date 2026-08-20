@@ -53,7 +53,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const wsRef = useRef<WebSocket | null>(null);
   const intentionalCloseRef = useRef(false);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const retryDelayRef = useRef(1000);
+  const retryDelayRef = useRef(400);
   const listenersRef = useRef<Set<(text: string) => void>>(new Set());
   const liveListenersRef = useRef<Set<() => void>>(new Set());
   const recentRef = useRef<string[]>([]);
@@ -141,6 +141,9 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
             const sid = typeof ctrl.session_id === "string" ? ctrl.session_id : "";
             const created = ctrl.created === true;
             const prevSid = readSavedSessionId();
+            // Diagnóstico de queda: distingue reattach (created=false, MESMA
+            // sessão, processo preservado) de sessão nova (created=true).
+            console.log(`[term] sessão sid=${sid} created=${created} prevSid=${prevSid} reattach=${!created}`);
             if (sid) {
               try { localStorage.setItem(SESSION_KEY, sid); } catch { /* noop */ }
             }
@@ -188,10 +191,13 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       });
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       if (wsRef.current === ws) wsRef.current = null;
       // Guard de identidade + ignora fechamento intencional (teardown).
       if (wsRef.current !== ws && wsRef.current !== null) return;
+      // Diagnóstico de queda: registra close code/reason + session_id salvo
+      // (para saber se a próxima conexão faz reattach ou sessão nova).
+      console.log(`[term] ws close code=${ev?.code ?? "?"} reason=${JSON.stringify(ev?.reason ?? "")} wasClean=${ev?.wasClean ?? "?"} session_id=${readSavedSessionId()}`);
       if (intentionalCloseRef.current) return;
       attachedRef.current = false;
       setConn("offline");
