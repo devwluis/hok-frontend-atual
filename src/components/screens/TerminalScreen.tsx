@@ -319,7 +319,7 @@ export function TerminalScreen() {
   const statusLabel = conn === "live" ? "LIVE" : conn === "connecting" ? "CONECTANDO…" : "OFFLINE";
 
   const showKeysBar = focused || armed !== "none";
-  const keyBase = "flex h-8 min-w-[30px] shrink-0 select-none items-center justify-center rounded-lg border px-1 text-[9px] font-mono transition-colors active:scale-95";
+  const keyBase = "flex h-11 min-w-[44px] shrink-0 select-none items-center justify-center rounded-xl border px-2 text-[10px] font-mono transition-colors active:scale-95";
   const keyIdle = "border-emerald-900/50 bg-emerald-500/5 text-emerald-300 hover:bg-emerald-500/15";
   const keyActive = "border-emerald-300/70 bg-emerald-500/30 text-white ring-1 ring-emerald-400/60";
 
@@ -369,7 +369,7 @@ export function TerminalScreen() {
         style={{ bottom: showKeysBar ? kbInset + (kbInset > 0 ? 8 : 116) : -64, transition: "bottom 0.18s ease" }}
         data-testid="special-keys-bar"
       >
-        <div className="pointer-events-auto thin-scroll mx-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-2xl border border-emerald-900/50 bg-[#0d1117]/95 px-1.5 py-1 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm">
+        <div className="pointer-events-auto thin-scroll mx-auto flex max-w-full items-center gap-2 overflow-x-auto rounded-2xl border border-emerald-900/50 bg-[#0d1117]/95 px-2 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm">
           <button type="button" onClick={pressCtrl} data-testid="key-ctrl"
             className={cn(keyBase, armed === "ctrl" ? keyActive : keyIdle)}>Ctrl</button>
           <button type="button" onClick={pressAlt} data-testid="key-alt"
@@ -378,20 +378,20 @@ export function TerminalScreen() {
             className={cn(keyBase, keyIdle)}>Esc</button>
           <button type="button" onClick={pressTab} data-testid="key-tab"
             className={cn(keyBase, keyIdle)}>Tab</button>
-          <span className="mx-0.5 h-5 w-px shrink-0 bg-emerald-900/40" />
+          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
           <button type="button" onClick={pressCtrlC} data-testid="key-ctrlc"
-            className={cn(keyBase, keyIdle, "text-red-300")}>Ctrl<span className="ml-0.5 text-[8px]">C</span></button>
+            className={cn(keyBase, keyIdle, "text-red-300")}>Ctrl<span className="ml-0.5 text-[9px]">C</span></button>
           <button type="button" onClick={pressCtrlD} data-testid="key-ctrld"
-            className={cn(keyBase, keyIdle, "text-red-300")}>Ctrl<span className="ml-0.5 text-[8px]">D</span></button>
-          <span className="mx-0.5 h-5 w-px shrink-0 bg-emerald-900/40" />
+            className={cn(keyBase, keyIdle, "text-red-300")}>Ctrl<span className="ml-0.5 text-[9px]">D</span></button>
+          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
           <button type="button" onClick={() => pressArrow("up")} data-testid="key-up"
-            className={cn(keyBase, keyIdle)} aria-label="Seta para cima"><ArrowUp className="h-3 w-3" /></button>
+            className={cn(keyBase, keyIdle)} aria-label="Seta para cima"><ArrowUp className="h-4 w-4" /></button>
           <button type="button" onClick={() => pressArrow("down")} data-testid="key-down"
-            className={cn(keyBase, keyIdle)} aria-label="Seta para baixo"><ArrowDown className="h-3 w-3" /></button>
+            className={cn(keyBase, keyIdle)} aria-label="Seta para baixo"><ArrowDown className="h-4 w-4" /></button>
           <button type="button" onClick={() => pressArrow("left")} data-testid="key-left"
-            className={cn(keyBase, keyIdle)} aria-label="Seta para a esquerda"><ArrowLeft className="h-3 w-3" /></button>
+            className={cn(keyBase, keyIdle)} aria-label="Seta para a esquerda"><ArrowLeft className="h-4 w-4" /></button>
           <button type="button" onClick={() => pressArrow("right")} data-testid="key-right"
-            className={cn(keyBase, keyIdle)} aria-label="Seta para a direita"><ArrowRight className="h-3 w-3" /></button>
+            className={cn(keyBase, keyIdle)} aria-label="Seta para a direita"><ArrowRight className="h-4 w-4" /></button>
         </div>
       </div>
     </div>
