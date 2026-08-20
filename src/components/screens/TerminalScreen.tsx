@@ -184,8 +184,8 @@ export function TerminalScreen() {
     setArmed(mod);
     refocusTerminal();
   };
-  const pressCtrl = () => setMod(armedRef.current === "ctrl" ? "none" : "ctrl");
-  const pressAlt = () => setMod(armedRef.current === "alt" ? "none" : "alt");
+  const pressCtrl = () => setMod("ctrl");
+  const pressAlt = () => setMod("alt");
   const pressCtrlC = () => { setMod("none"); writeToShell("\x03"); };
   const pressCtrlD = () => { setMod("none"); writeToShell("\x04"); };
   const pressEsc = () => { setMod("none"); writeToShell("\x1b"); };
@@ -321,7 +321,7 @@ export function TerminalScreen() {
   const showKeysBar = focused || armed !== "none";
   const keyBase = "flex h-11 min-w-[44px] shrink-0 select-none items-center justify-center rounded-xl border px-2 text-[10px] font-mono transition-colors active:scale-95";
   const keyIdle = "border-emerald-900/50 bg-emerald-500/5 text-emerald-300 hover:bg-emerald-500/15";
-  const keyActive = "border-emerald-300/70 bg-emerald-500/30 text-white ring-1 ring-emerald-400/60";
+  const keyActive = "border-emerald-300 bg-emerald-400 text-emerald-950 font-bold ring-2 ring-emerald-300/80 shadow-[0_0_14px_rgba(52,211,153,0.7)]";
 
   return (
     <div className="relative flex h-full flex-col bg-[#0d1117] pb-36 font-mono text-emerald-400">
@@ -371,9 +371,9 @@ export function TerminalScreen() {
       >
         <div className="pointer-events-auto thin-scroll mx-auto flex max-w-full items-center gap-2 overflow-x-auto rounded-2xl border border-emerald-900/50 bg-[#0d1117]/95 px-2 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm">
           <button type="button" onClick={pressCtrl} data-testid="key-ctrl"
-            className={cn(keyBase, armed === "ctrl" ? keyActive : keyIdle)}>Ctrl</button>
+            className={cn(keyBase, "touch-manipulation", armed === "ctrl" ? keyActive : keyIdle)}>Ctrl</button>
           <button type="button" onClick={pressAlt} data-testid="key-alt"
-            className={cn(keyBase, armed === "alt" ? keyActive : keyIdle)}>Alt</button>
+            className={cn(keyBase, "touch-manipulation", armed === "alt" ? keyActive : keyIdle)}>Alt</button>
           <button type="button" onClick={pressEsc} data-testid="key-esc"
             className={cn(keyBase, keyIdle)}>Esc</button>
           <button type="button" onClick={pressTab} data-testid="key-tab"
