@@ -370,10 +370,10 @@ export function TerminalScreen() {
         data-testid="special-keys-bar"
       >
         <div className="pointer-events-auto thin-scroll mx-auto flex max-w-full items-center gap-2 overflow-x-auto rounded-2xl border border-emerald-900/50 bg-[#0d1117]/95 px-2 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm">
-          <button type="button" onClick={pressCtrl} data-testid="key-ctrl"
-            className={cn(keyBase, "touch-manipulation", armed === "ctrl" ? keyActive : keyIdle)}>Ctrl</button>
-          <button type="button" onClick={pressAlt} data-testid="key-alt"
-            className={cn(keyBase, "touch-manipulation", armed === "alt" ? keyActive : keyIdle)}>Alt</button>
+          <button type="button" onPointerDown={pressCtrl} onClick={pressCtrl} data-testid="key-ctrl"
+            className={cn(keyBase, "touch-manipulation active:bg-emerald-400 active:text-emerald-950", armed === "ctrl" ? keyActive : keyIdle)}>Ctrl</button>
+          <button type="button" onPointerDown={pressAlt} onClick={pressAlt} data-testid="key-alt"
+            className={cn(keyBase, "touch-manipulation active:bg-emerald-400 active:text-emerald-950", armed === "alt" ? keyActive : keyIdle)}>Alt</button>
           <button type="button" onClick={pressEsc} data-testid="key-esc"
             className={cn(keyBase, keyIdle)}>Esc</button>
           <button type="button" onClick={pressTab} data-testid="key-tab"
