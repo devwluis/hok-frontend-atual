@@ -96,6 +96,7 @@ export function TerminalScreen() {
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const armedRef = useRef<ArmedMod>("none");
+  const armedAtRef = useRef(0);
   const [conn, setConn] = useState<Conn>("idle");
   const [note, setNote] = useState("");
   const [armed, setArmed] = useState<ArmedMod>("none");
@@ -181,6 +182,7 @@ export function TerminalScreen() {
   };
   const setMod = (mod: ArmedMod) => {
     armedRef.current = mod;
+    armedAtRef.current = Date.now();
     setArmed(mod);
     refocusTerminal();
   };
@@ -227,8 +229,26 @@ export function TerminalScreen() {
     term.onData((data) => {
       const mod = armedRef.current;
       if (mod !== "none") {
+        // Lockout pós-armamento: ao tocar Ctrl/Alt o refocus reabre o teclado
+        // virtual no mobile e o teclado emite um evento fantasma para a textarea
+        // nos primeiros ~350ms — esse evento NÃO deve desarmar o modificador.
+        // Passa o dado adiante (se for vazio, é no-op no shell) e mantém armado.
+        if (Date.now() - armedAtRef.current < 350) {
+          // Aplica o modificador se a tecla for mapeável, mas NÃO desarma:
+          // evento fantasma do teclado no refocus é inócuo, tecla rápida real
+          // ainda recebe Ctrl/Alt.
+          if (mod === "ctrl") {
+            const code = ctrlCode(data);
+            if (code) { writeToShell(code); return; }
+          } else if (mod === "alt") {
+            if (data.length === 1) { writeToShell("\x1b" + data); return; }
+          }
+          writeToShell(data);
+          return;
+        }
         // Desarma sempre após a próxima tecla (comportamento "sticky one-shot")
         armedRef.current = "none";
+        armedAtRef.current = 0;
         setArmed("none");
         if (mod === "ctrl") {
           const code = ctrlCode(data);
