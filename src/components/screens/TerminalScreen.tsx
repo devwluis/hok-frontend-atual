@@ -84,7 +84,7 @@ export function TerminalScreen() {
   const fitRef = useRef<FitAddon | null>(null);
   const armedRef = useRef<ArmedMod>("none");
   const armedAtRef = useRef(0);
-  const { conn, note, connect, write, sendResize, subscribeOutput, subscribeLive, getRecentOutput } = useTerminal();
+  const { conn, note, connect, ensureConnected, write, sendResize, subscribeOutput, subscribeLive, getRecentOutput } = useTerminal();
   const [armed, setArmed] = useState<ArmedMod>("none");
   const [focused, setFocused] = useState(false);
   const [kbInset, setKbInset] = useState(0);
@@ -242,9 +242,12 @@ export function TerminalScreen() {
     const ro = new ResizeObserver(onResize);
     ro.observe(host);
 
-    // Primeira conexão / reconexão ao remontar: o provider reaproveita o
-    // socket se ainda estiver vivo; se não, abre um novo.
-    connect();
+    // Conexão no mount: o provider global mantém o socket vivo ao trocar de
+    // aba. ensureConnected reaproveita a MESMA sessão se o socket ainda
+    // estiver OPEN/CONNECTING (sem derrubar o shell); só abre um novo quando
+    // não há conexão ativa (primeira vez / queda real). FIX 20/08: chamar
+    // connect() aqui derrubava o socket vivo e resetava a sessão.
+    ensureConnected();
     return () => {
       clearInterval(saveTimer);
       unsub();

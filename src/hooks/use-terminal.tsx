@@ -17,6 +17,7 @@ type TerminalContextValue = {
   conn: Conn;
   note: string;
   connect: () => void;
+  ensureConnected: () => void;
   teardown: () => void;
   write: (data: string) => void;
   sendResize: (cols: number, rows: number) => void;
@@ -154,6 +155,20 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   };
 
   const connect = useCallback(() => connectRef.current(), []);
+
+  // FIX 20/08 (regressão de sessão): ao voltar da aba Terminal, a tela NÃO
+  // pode chamar connect() (que faz teardown e derruba o socket vivo — o
+  // backend então mata o bash e a sessão reseta). ensureConnected só abre
+  // conexão se não houver socket OPEN/CONNECTING; com socket vivo, mantém a
+  // MESMA sessão (shell real continua rodando).
+  const ensureConnected = useCallback(() => {
+    const ws = wsRef.current;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    connectRef.current();
+  }, []);
+
   const teardown = useCallback(() => teardownRef.current(), []);
 
   const write = useCallback((data: string) => {
@@ -209,7 +224,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value: TerminalContextValue = {
-    conn, note, connect, teardown, write, sendResize, subscribeOutput, subscribeLive, getRecentOutput,
+    conn, note, connect, ensureConnected, teardown, write, sendResize, subscribeOutput, subscribeLive, getRecentOutput,
   };
 
   return <TerminalContext.Provider value={value}>{children}</TerminalContext.Provider>;
