@@ -396,7 +396,12 @@ function ModelCatalogList({ modelsList, search, activeModelId, onSelect }: {
   onSelect: (id: string) => void;
 }) {
   const q = search.trim().toLowerCase();
-  const match = (m: HokModel) => !q || m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q);
+  const match = (m: HokModel) =>
+    !q ||
+    m.label.toLowerCase().includes(q) ||
+    m.id.toLowerCase().includes(q) ||
+    m.provider.toLowerCase().includes(q) ||
+    (Array.isArray(m.tags) && m.tags.some((t) => t.includes(q)));
   const groups: { header: string; badge?: string; badgeCls?: string; models: HokModel[] }[] = [];
   const paid = modelsList.paid.filter(match);
   if (paid.length) groups.push({ header: "PAGO", badge: "PAGO", badgeCls: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", models: paid });

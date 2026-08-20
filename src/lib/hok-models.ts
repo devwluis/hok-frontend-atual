@@ -1,11 +1,11 @@
-export type HokModel = { id: string; label: string; provider: string; color: string; description: string; free: boolean; };
+export type HokModel = { id: string; label: string; provider: string; color: string; description: string; free: boolean; tags: string[]; };
 
 export const FALLBACK_MODELS: HokModel[] = [
-  { id: "auto", label: "Auto", provider: "HOK", color: "#F5A623", description: "HOK escolhe o modelo ideal para cada tarefa", free: true },
-  { id: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat v3.1", provider: "OpenCode Zen", color: "#06b6d4", description: "DeepSeek Chat v3.1 — gratuito via OpenCode Zen", free: true },
-  { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "OpenRouter", color: "#3b82f6", description: "Gemini 2.5 Flash — multimodal e contexto longo", free: false },
-  { id: "google/gemini-2.5-flash-lite", label: "Gemini Lite", provider: "OpenRouter", color: "#60a5fa", description: "Gemini Flash Lite — leve para tarefas simples", free: true },
-  { id: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat v3.1", provider: "OpenRouter", color: "#06b6d4", description: "DeepSeek Chat v3.1 — código e análise técnica", free: true },
+  { id: "auto", label: "Auto", provider: "HOK", color: "#F5A623", description: "HOK escolhe o modelo ideal para cada tarefa", free: true, tags: ["auto", "hok", "free", "gratuito"] },
+  { id: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat v3.1", provider: "OpenCode Zen", color: "#06b6d4", description: "DeepSeek Chat v3.1 — gratuito via OpenCode Zen", free: true, tags: ["deepseek", "deepseek/deepseek-chat-v3.1", "opencode zen", "free", "gratuito"] },
+  { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "OpenRouter", color: "#3b82f6", description: "Gemini 2.5 Flash — multimodal e contexto longo", free: false, tags: ["google", "gemini", "google/gemini-2.5-flash", "openrouter"] },
+  { id: "google/gemini-2.5-flash-lite", label: "Gemini Lite", provider: "OpenRouter", color: "#60a5fa", description: "Gemini Flash Lite — leve para tarefas simples", free: true, tags: ["google", "gemini", "google/gemini-2.5-flash-lite", "openrouter", "free", "gratuito"] },
+  { id: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat v3.1", provider: "OpenRouter", color: "#06b6d4", description: "DeepSeek Chat v3.1 — código e análise técnica", free: true, tags: ["deepseek", "deepseek/deepseek-chat-v3.1", "openrouter", "free", "gratuito"] },
 ];
 
 let modelsCache: HokModel[] | null = null;
@@ -45,8 +45,27 @@ function mapApiModelToHokModel(apiModel: any): HokModel {
     provider,
     color: getColorForProvider(provider, fallbackColor),
     description: `${apiModel.label || apiModel.id} — ${apiModel.free ? "gratuito" : "pago"} via ${provider}`,
-    free: apiModel.free,
+    free: apiModel.free === true,
+    tags: Array.isArray(apiModel.tags) && apiModel.tags.length > 0
+      ? apiModel.tags
+      : buildFallbackTags(apiModel.id, provider, apiModel.free === true),
   };
+}
+
+// buildFallbackTags monta tags de busca localmente quando a API não mandar
+// (fallback): família (antes da "/") + provider + "free" se gratuito.
+function buildFallbackTags(id: string, provider: string, free: boolean): string[] {
+  const tags: string[] = [];
+  const add = (s: string) => {
+    const t = (s || "").trim().toLowerCase();
+    if (t && !tags.includes(t)) tags.push(t);
+  };
+  add(id);
+  add(provider);
+  const fam = id.split("/")[0];
+  if (fam) add(fam);
+  if (free) { add("free"); add("gratuito"); }
+  return tags;
 }
 
 function readSettings(): { serverUrl: string; token: string } {
@@ -81,7 +100,7 @@ async function fetchModelsFromAPI(): Promise<HokModel[]> {
       return FALLBACK_MODELS;
     }
     const models: HokModel[] = [
-      { id: "auto", label: "Auto", provider: "HOK", color: "#F5A623", description: "HOK escolhe o modelo ideal para cada tarefa", free: true },
+      { id: "auto", label: "Auto", provider: "HOK", color: "#F5A623", description: "HOK escolhe o modelo ideal para cada tarefa", free: true, tags: ["auto", "hok", "free", "gratuito"] },
     ];
     for (const pg of data.providers) {
       for (const m of pg.models) {
@@ -140,6 +159,7 @@ export function getModel(id: string): HokModel {
     color: getColorForProvider(provider, "#f97316"),
     description: `${id} — fornecido via ${provider}`,
     free: false,
+    tags: buildFallbackTags(id, provider, false),
   };
 }
 
@@ -161,4 +181,31 @@ export async function getPaidModels(force = false): Promise<HokModel[]> {
 export async function getZenModels(force = false): Promise<HokModel[]> {
   const models = await getModels(force);
   return models.filter((x) => x.provider === "OpenCode Zen");
+}
+
+export async function getGoModels(force = false): Promise<HokModel[]> {
+  const models = await getModels(force);
+  return models.filter((x) => x.provider === "OpenCode Go");
+}
+
+// normalizedTerms junta todos os campos buscáveis de um modelo em minúsculas
+// (label, id, provider, tags), para busca por substring/fuzzy.
+export function normalizedModelTerms(m: HokModel): string {
+  const tags = Array.isArray(m.tags) ? m.tags.join(" ") : "";
+  return `${m.label} ${m.id} ${m.provider} ${tags}`.toLowerCase();
+}
+
+// searchModels filtra modelos por substring não-case-sensitive contra
+// label+id+provider+tags. "free" casa com modelos de custo zero (tag) e
+// também com label/descrição. Query vazia retorna tudo.
+export function searchModels(models: HokModel[], query: string): HokModel[] {
+  const q = (query || "").trim().toLowerCase();
+  if (!q) return models;
+  return models.filter((m) => normalizedModelTerms(m).includes(q));
+}
+
+// getFreeModelsFromAll retorna todos os modelos de custo zero de QUALQUER
+// fonte (Zen + Go + OpenRouter) — usado pelo grupo "Modelos Gratuitos".
+export function getFreeModelsFromAll(models: HokModel[]): HokModel[] {
+  return models.filter((x) => x.free);
 }

@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import {
   getModels,
   invalidateModelsCache,
+  searchModels,
+  getFreeModelsFromAll,
   type HokModel,
 } from "@/lib/hok-models";
 
@@ -43,6 +45,7 @@ export function ModelsScreen() {
   const [engine, setEngine] = useState<EngineId>("auto");
   const [activeId, setActiveId] = useState<string>("auto");
   const [saving, setSaving] = useState(false);
+  const [onlyFree, setOnlyFree] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -60,22 +63,33 @@ export function ModelsScreen() {
     };
   }, []);
 
-  const { zenFree, zenPaid, orFree, orPaid } = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const match = (m: HokModel) =>
-      !q ||
-      m.label.toLowerCase().includes(q) ||
-      m.id.toLowerCase().includes(q) ||
-      m.provider.toLowerCase().includes(q);
-    const allZen = all.filter((m) => m.provider === "OpenCode Zen" && match(m));
-    const allOr = all.filter((m) => m.provider !== "OpenCode Zen" && match(m));
-    return {
-      zenFree: allZen.filter((m) => m.free),
-      zenPaid: allZen.filter((m) => !m.free),
-      orFree: allOr.filter((m) => m.free),
-      orPaid: allOr.filter((m) => !m.free),
-    };
-  }, [all, query]);
+  const filtered = useMemo(() => searchModels(all, query), [all, query]);
+
+  const groups = useMemo(() => {
+    // "Somente gratuitos": um único grupo "Modelos Gratuitos" combinando
+    // Zen + Go + OpenRouter com custo zero.
+    if (onlyFree) {
+      const free = getFreeModelsFromAll(filtered);
+      return [{
+        title: "Modelos Gratuitos (Zen + Go + OpenRouter)",
+        badge: "FREE",
+        badgeClass: "bg-[color:var(--emerald)]/15 text-[color:var(--emerald)]",
+        items: free,
+      }];
+    }
+    // Agrupamento por provedor e custo.
+    const zen = filtered.filter((m) => m.provider === "OpenCode Zen");
+    const go = filtered.filter((m) => m.provider === "OpenCode Go");
+    const or = filtered.filter((m) => m.provider !== "OpenCode Zen" && m.provider !== "OpenCode Go");
+    return [
+      { title: "OpenCode Zen — FREE", badge: "FREE", badgeClass: "bg-[color:var(--emerald)]/15 text-[color:var(--emerald)]", items: zen.filter((m) => m.free) },
+      { title: "OpenCode Zen — PAGO", badge: "PAGO", badgeClass: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", items: zen.filter((m) => !m.free) },
+      { title: "OpenCode Go — FREE", badge: "FREE", badgeClass: "bg-[color:var(--emerald)]/15 text-[color:var(--emerald)]", items: go.filter((m) => m.free) },
+      { title: "OpenCode Go — PAGO", badge: "PAGO", badgeClass: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", items: go.filter((m) => !m.free) },
+      { title: "OpenRouter — FREE", badge: "FREE", badgeClass: "bg-[color:var(--emerald)]/15 text-[color:var(--emerald)]", items: or.filter((m) => m.free) },
+      { title: "OpenRouter — PAGO", badge: "PAGO", badgeClass: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", items: or.filter((m) => !m.free) },
+    ];
+  }, [filtered, onlyFree]);
 
   const selectModel = async (m: HokModel) => {
     setSaving(true);
@@ -96,12 +110,7 @@ export function ModelsScreen() {
 
   const activeModel = all.find((m) => m.id === activeId);
 
-  const rows: { title: string; badge: string; badgeClass: string; items: HokModel[] }[] = [
-    { title: "OpenCode Zen — FREE", badge: "FREE", badgeClass: "bg-[color:var(--emerald)]/15 text-[color:var(--emerald)]", items: zenFree },
-    { title: "OpenCode Zen — PAGO", badge: "PAGO", badgeClass: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", items: zenPaid },
-    { title: "OpenRouter — FREE", badge: "FREE", badgeClass: "bg-[color:var(--emerald)]/15 text-[color:var(--emerald)]", items: orFree },
-    { title: "OpenRouter — PAGO", badge: "PAGO", badgeClass: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", items: orPaid },
-  ];
+  const rows: { title: string; badge: string; badgeClass: string; items: HokModel[] }[] = groups;
 
   return (
     <ScreenFrame noPad>
@@ -134,10 +143,40 @@ export function ModelsScreen() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar modelo…"
+            placeholder="Buscar modelo… (ex: free, deepseek, claude, gemini)"
             className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/70"
           />
         </div>
+
+        {/* Toggle somente gratuitos */}
+        <button
+          type="button"
+          onClick={() => setOnlyFree((v) => !v)}
+          className={cn(
+            "mt-2 flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-left transition-colors",
+            onlyFree
+              ? "border-[color:var(--emerald)]/50 bg-[color:var(--emerald)]/10"
+              : "border-border bg-card hover:opacity-90",
+          )}
+        >
+          <span className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+            <Sparkles className="h-3.5 w-3.5 text-[color:var(--emerald)]" />
+            Somente modelos gratuitos
+          </span>
+          <span
+            className={cn(
+              "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+              onlyFree ? "bg-[color:var(--emerald)]" : "bg-muted-foreground/30",
+            )}
+          >
+            <span
+              className={cn(
+                "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all",
+                onlyFree ? "left-[18px]" : "left-0.5",
+              )}
+            />
+          </span>
+        </button>
 
         {/* Banner modelo ativo */}
         <div className="mt-3 flex items-center gap-2 rounded-2xl border border-[color:var(--cyan-glow)]/30 bg-[color:var(--cyan-glow)]/10 px-3 py-2">
