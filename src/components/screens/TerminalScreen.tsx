@@ -5,8 +5,8 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { cn } from "@/lib/utils";
+import { useTerminal } from "@/hooks/use-terminal";
 
-const SETTINGS_KEY = "hokma.settings.v1";
 const TERMINAL_STATE_KEY = "hokma.terminal.state.v1";
 const HISTORY_MAX = 200;
 
@@ -53,23 +53,11 @@ function snapshotTerminalLines(term: Terminal): string[] {
   return [];
 }
 
-function readSettings(): { serverUrl: string; token: string } {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return { serverUrl: "", token: "" };
-    const s = JSON.parse(raw) as Record<string, string>;
-    return { serverUrl: s["Server URL"] || "", token: s["HOK_TOKEN"] || "" };
-  } catch {
-    return { serverUrl: "", token: "" };
-  }
-}
-
 const QUICK = [
   "pwd", "ls -la", "whoami", "uptime",
   "df -h /sdcard", "free -h", "uname -r",
 ];
 
-type Conn = "idle" | "connecting" | "live" | "offline";
 type ArmedMod = "none" | "ctrl" | "alt";
 
 // Mapeia tecla única (do teclado do sistema) para o código de controle Ctrl+<tecla>
@@ -94,83 +82,14 @@ export function TerminalScreen() {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
   const armedRef = useRef<ArmedMod>("none");
   const armedAtRef = useRef(0);
-  const [conn, setConn] = useState<Conn>("idle");
-  const [note, setNote] = useState("");
+  const { conn, note, connect, write, sendResize, subscribeOutput, subscribeLive, getRecentOutput } = useTerminal();
   const [armed, setArmed] = useState<ArmedMod>("none");
   const [focused, setFocused] = useState(false);
   const [kbInset, setKbInset] = useState(0);
 
-  const teardown = () => {
-    try { wsRef.current?.close(); } catch { /* noop */ }
-    wsRef.current = null;
-  };
-
-  const connect = () => {
-    const { serverUrl, token } = readSettings();
-    teardown();
-    if (!serverUrl) {
-      setConn("offline");
-      setNote("Configure Server URL + HOK_TOKEN nas Configurações.");
-      return;
-    }
-    if (!token) {
-      setConn("offline");
-      setNote("HOK_TOKEN ausente — o terminal exige autenticação.");
-      return;
-    }
-
-    setConn("connecting");
-    setNote("");
-    const base = serverUrl.replace(/\/$/, "").replace(/^http/, "ws");
-    const url = `${base}/terminal/ws?token=${encodeURIComponent(token)}`;
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(url);
-    } catch {
-      setConn("offline");
-      setNote("WebSocket indisponível neste ambiente.");
-      return;
-    }
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setConn("live");
-      const dims = fitRef.current?.proposeDimensions();
-      if (dims) {
-        ws.send(JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows }));
-      }
-      const term = termRef.current;
-      if (term) {
-        term.writeln("\r\n\x1b[32m● sessão PTY real iniciada\x1b[0m (Ctrl+D sai)");
-        term.scrollToBottom();
-      }
-    };
-
-    ws.onmessage = (ev) => {
-      if (typeof ev.data === "string") {
-        termRef.current?.write(ev.data);
-        termRef.current?.scrollToBottom();
-      }
-    };
-
-    ws.onclose = () => {
-      if (wsRef.current === ws) wsRef.current = null;
-      setConn("offline");
-    };
-    ws.onerror = () => {
-      setConn("offline");
-      setNote("Falha na conexão com o servidor.");
-    };
-  };
-
-  const writeToShell = (data: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "input", data }));
-    }
-  };
+  const writeToShell = (data: string) => write(data);
 
   // ── Modificadores sticky (Ctrl/Alt) para teclado touch ──
   // Sempre refoca a textarea do xterm após tocar a barra: o toque num botão
@@ -274,6 +193,35 @@ export function TerminalScreen() {
     if (saved && saved.history.length > 0) {
       term.write(saved.history.join("\r\n") + "\r\n");
     }
+    // Replay do que aconteceu no shell enquanto a tela estava desmontada
+    // (o socket global continuou vivo em background após o FIX 20/08).
+    const recent = getRecentOutput();
+    if (recent) {
+      term.write(recent);
+      term.scrollToBottom();
+    }
+
+    // Output do PTY vem do provider global (socket sobrevive à troca de abas).
+    const onOutput = (text: string) => {
+      const t = termRef.current;
+      if (!t) return;
+      t.write(text);
+      t.scrollToBottom();
+    };
+    const unsub = subscribeOutput(onOutput);
+
+    // Quando a conexão abre de verdade (socket novo), avisa na tela e
+    // reenvia o resize (o tamanho do terminal pode ter mudado).
+    const onLive = () => {
+      const t = termRef.current;
+      if (t) {
+        t.writeln("\r\n\x1b[32m● sessão PTY real iniciada\x1b[0m (Ctrl+D sai)");
+        t.scrollToBottom();
+      }
+      const dims = fitRef.current?.proposeDimensions();
+      if (dims) sendResize(dims.cols, dims.rows);
+    };
+    const unsubLive = subscribeLive(onLive);
 
     // Snapshot incremental a cada 2s (não depende de unload da página,
     // que pode não disparar ao fechar a aba em mobile).
@@ -288,32 +236,26 @@ export function TerminalScreen() {
         fit.fit();
         termRef.current?.scrollToBottom();
         const dims = fit.proposeDimensions();
-        if (dims && wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows }));
-        }
+        if (dims) sendResize(dims.cols, dims.rows);
       } catch { /* noop */ }
     };
     const ro = new ResizeObserver(onResize);
     ro.observe(host);
 
+    // Primeira conexão / reconexão ao remontar: o provider reaproveita o
+    // socket se ainda estiver vivo; se não, abre um novo.
     connect();
     return () => {
       clearInterval(saveTimer);
+      unsub();
+      unsubLive();
       const t = termRef.current;
       if (t) writeTerminalState("pty-1", snapshotTerminalLines(t)); // save final no unmount
       ro.disconnect();
-      teardown();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const handler = (e: StorageEvent) => { if (e.key === SETTINGS_KEY) connect(); };
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
