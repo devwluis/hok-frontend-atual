@@ -187,18 +187,23 @@ export function TerminalScreen() {
       ta.addEventListener("blur", () => setFocused(false));
     }
 
-    // Restaura a última sessão (histórico visível) antes de conectar —
-    // o usuário vê o terminal exatamente como deixou.
-    const saved = readTerminalState();
-    if (saved && saved.history.length > 0) {
-      term.write(saved.history.join("\r\n") + "\r\n");
-    }
-    // Replay do que aconteceu no shell enquanto a tela estava desmontada
-    // (o socket global continuou vivo em background após o FIX 20/08).
-    const recent = getRecentOutput();
-    if (recent) {
-      term.write(recent);
-      term.scrollToBottom();
+    // Restaura o estado visual ao montar:
+    // - Se o socket JÁ está vivo (troca de aba com TerminalProvider ativo):
+    //   restaura histórico do localStorage + output recente do provider.
+    // - Se é conexão nova (refresh/reabrir navegador/reconexão): o servidor
+    //   envia o scrollback persistente na mensagem de controle — não duplicar
+    //   com o histórico local.
+    const liveOnMount = conn === "live";
+    if (liveOnMount) {
+      const saved = readTerminalState();
+      if (saved && saved.history.length > 0) {
+        term.write(saved.history.join("\r\n") + "\r\n");
+      }
+      const recent = getRecentOutput();
+      if (recent) {
+        term.write(recent);
+        term.scrollToBottom();
+      }
     }
 
     // Output do PTY vem do provider global (socket sobrevive à troca de abas).

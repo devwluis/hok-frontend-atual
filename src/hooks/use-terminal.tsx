@@ -10,6 +10,7 @@ import type { ReactNode } from "react";
 // dentro do TerminalScreen e o unmount fechava a conexão a cada troca de aba.
 
 const SETTINGS_KEY = "hokma.settings.v1";
+const SESSION_KEY = "hokma.terminal.session.v1";
 
 export type Conn = "idle" | "connecting" | "live" | "offline";
 
@@ -39,6 +40,10 @@ function readSettings(): { serverUrl: string; token: string } {
   }
 }
 
+function readSavedSessionId(): string {
+  try { return localStorage.getItem(SESSION_KEY) || ""; } catch { return ""; }
+}
+
 // Buffer contínuo do output do PTY (cap ~200 chunks): permite reescrever na
 // tela o que aconteceu no shell enquanto a aba do Terminal estava desmontada.
 const RECENT_MAX_CHUNKS = 200;
@@ -52,16 +57,23 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const listenersRef = useRef<Set<(text: string) => void>>(new Set());
   const liveListenersRef = useRef<Set<() => void>>(new Set());
   const recentRef = useRef<string[]>([]);
+  const attachedRef = useRef(false); // true depois do "ready" da sessão atual
   const [conn, setConn] = useState<Conn>("idle");
   const [note, setNote] = useState("");
 
-  const setLive = useCallback(() => {
-    retryDelayRef.current = 1000;
-    setConn("live");
-    setNote("");
-    liveListenersRef.current.forEach((fn) => {
-      try { fn(); } catch { /* noop */ }
-    });
+  // Scrollback enviado pelo servidor no reattach (base64 → UTF-8). É
+  // autoritativo — limpa o buffer de replay local e reescreve na tela.
+  const handleScrollback = useCallback((data: unknown) => {
+    if (typeof data !== "string") return;
+    try {
+      const bin = atob(data);
+      const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+      const raw = new TextDecoder("utf-8").decode(bytes);
+      recentRef.current = [];
+      listenersRef.current.forEach((fn) => {
+        try { fn(raw); } catch { /* noop */ }
+      });
+    } catch { /* ignore */ }
   }, []);
 
   const scheduleReconnect = useCallback(() => {
@@ -77,6 +89,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   connectRef.current = () => {
     const { serverUrl, token } = readSettings();
     teardownRef.current();
+    recentRef.current = [];
+    attachedRef.current = false;
     if (!serverUrl) {
       setConn("offline");
       setNote("Configure Server URL + HOK_TOKEN nas Configurações.");
@@ -91,7 +105,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     setConn("connecting");
     setNote("");
     const base = serverUrl.replace(/\/$/, "").replace(/^http/, "ws");
-    const url = `${base}/terminal/ws?token=${encodeURIComponent(token)}`;
+    const saved = readSavedSessionId();
+    const url = `${base}/terminal/ws?token=${encodeURIComponent(token)}${saved ? `&session_id=${encodeURIComponent(saved)}` : ""}`;
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
@@ -107,13 +122,59 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       // Guard de identidade: eventos de um socket antigo NÃO podem afetar
       // o estado quando outro socket já assumiu (bug de corrida corrigido).
       if (wsRef.current !== ws) return;
-      setLive();
+      setConn("connecting");
     };
 
     ws.onmessage = (ev) => {
       if (wsRef.current !== ws) return;
       if (typeof ev.data !== "string") return;
-      recentRef.current.push(ev.data);
+      const text = ev.data as string;
+
+      // Fase de attach: o backend envia mensagens de controle (session_id,
+      // scrollback, ready) ANTES do stream ao vivo. Após "ready", tudo é
+      // texto cru do terminal.
+      if (!attachedRef.current) {
+        let ctrl: Record<string, unknown> | null = null;
+        try { ctrl = JSON.parse(text) as Record<string, unknown>; } catch { ctrl = null; }
+        if (ctrl && typeof ctrl === "object" && typeof ctrl.type === "string") {
+          if (ctrl.type === "session") {
+            const sid = typeof ctrl.session_id === "string" ? ctrl.session_id : "";
+            const created = ctrl.created === true;
+            const prevSid = readSavedSessionId();
+            if (sid) {
+              try { localStorage.setItem(SESSION_KEY, sid); } catch { /* noop */ }
+            }
+            setConn("live");
+            setNote("");
+            if (created) {
+              // sessão nova: banner + aviso sutil se havia uma anterior expirada
+              if (prevSid && prevSid !== sid) {
+                setNote("Sessão anterior expirada — nova sessão iniciada.");
+              }
+              liveListenersRef.current.forEach((fn) => { try { fn(); } catch { /* noop */ } });
+            }
+            return;
+          }
+          if (ctrl.type === "scrollback") {
+            handleScrollback(ctrl.data);
+            return;
+          }
+          if (ctrl.type === "ready") {
+            attachedRef.current = true;
+            setConn("live");
+            setNote("");
+            return;
+          }
+          if (ctrl.type === "session_error") {
+            setConn("offline");
+            setNote("Falha ao iniciar a sessão do terminal.");
+            return;
+          }
+        }
+      }
+
+      // stream ao vivo (texto cru do pty)
+      recentRef.current.push(text);
       if (recentRef.current.length > RECENT_MAX_CHUNKS) recentRef.current.shift();
       let total = 0;
       for (const c of recentRef.current) total += c.length;
@@ -123,7 +184,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         for (const c of recentRef.current) total += c.length;
       }
       listenersRef.current.forEach((fn) => {
-        try { fn(ev.data as string); } catch { /* noop */ }
+        try { fn(text); } catch { /* noop */ }
       });
     };
 
@@ -132,6 +193,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       // Guard de identidade + ignora fechamento intencional (teardown).
       if (wsRef.current !== ws && wsRef.current !== null) return;
       if (intentionalCloseRef.current) return;
+      attachedRef.current = false;
       setConn("offline");
       if (!document.hidden) scheduleReconnect();
     };
