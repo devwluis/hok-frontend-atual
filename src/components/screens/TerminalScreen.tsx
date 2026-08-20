@@ -88,6 +88,11 @@ export function TerminalScreen() {
   const [armed, setArmed] = useState<ArmedMod>("none");
   const [focused, setFocused] = useState(false);
   const [kbInset, setKbInset] = useState(0);
+  // Altura visível (px) quando o teclado virtual está aberto (null = fechado).
+  const [kbHeight, setKbHeight] = useState<number | null>(null);
+  // true enquanto o usuário está no fundo do buffer (digitando/stream ao vivo);
+  // false quando rolou pra cima de propósito (modo histórico — NÃO forçar scroll).
+  const atBottomRef = useRef(true);
 
   const writeToShell = (data: string) => write(data);
 
@@ -124,7 +129,7 @@ export function TerminalScreen() {
       fontSize: 12.5,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
       cursorBlink: true,
-      scrollback: 5000,
+      scrollback: 10000,
       theme: {
         background: "#0d1117",
         foreground: "#6ee7b7",
@@ -144,6 +149,22 @@ export function TerminalScreen() {
     fit.fit();
     termRef.current = term;
     fitRef.current = fit;
+
+    // Rastreia se o usuário está no fundo do buffer: digitando/stream ao vivo
+    // (viewportY == baseY) ou rolado pra cima (modo histórico). Usado para
+    // NÃO forçar scrollToBottom quando o usuário rolou de propósito — o
+    // auto-scroll do teclado só age na digitação ativa.
+    const updateAtBottom = () => {
+      try {
+        const b = term.buffer.active;
+        atBottomRef.current = b.viewportY >= b.baseY;
+      } catch { atBottomRef.current = true; }
+    };
+    updateAtBottom();
+    term.onScroll(() => {
+      updateAtBottom();
+      // Ao voltar pro fundo (scrollToBottom manual via gesto/barra), nada a fazer.
+    });
 
     term.onData((data) => {
       const mod = armedRef.current;
@@ -239,9 +260,13 @@ export function TerminalScreen() {
     const onResize = () => {
       try {
         fit.fit();
-        termRef.current?.scrollToBottom();
         const dims = fit.proposeDimensions();
         if (dims) sendResize(dims.cols, dims.rows);
+        // Auto-scroll do redimensionamento SÓ quando o usuário está no fundo
+        // (digitando ativamente). Se rolou pra cima de propósito (modo
+        // histórico), preserva a posição — não briga com o scroll manual.
+        const t = termRef.current;
+        if (t && atBottomRef.current) t.scrollToBottom();
       } catch { /* noop */ }
     };
     const ro = new ResizeObserver(onResize);
@@ -268,13 +293,23 @@ export function TerminalScreen() {
   }, []);
 
   // Altura do teclado virtual (Android): quando abre, o visualViewport encolhe.
-  // Usa isso para ancorar a barra de teclas logo acima do teclado.
+  // Usa isso para ancorar a barra de teclas logo acima do teclado E para
+  // redimensionar o container do terminal à área visível — assim a linha de
+  // comando/cursor fica sempre acima do teclado, sem ficar escondida.
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
     const onVV = () => {
       const inset = Math.max(0, window.innerHeight - vv.height);
       setKbInset(inset);
+      // Teclado aberto → limita a altura do terminal ao espaço visível acima
+      // dele; fechado → null (restaura h-full/h-dvh original).
+      setKbHeight(inset > 0 ? Math.max(0, vv.height) : null);
+      // Mantém o cursor visível após o redimensionamento (o ResizeObserver →
+      // onResize refaz fit/sendResize e rola ao fundo se estiver digitando).
+      if (inset > 0 && atBottomRef.current) {
+        try { termRef.current?.scrollToBottom(); } catch { /* noop */ }
+      }
     };
     vv.addEventListener("resize", onVV);
     vv.addEventListener("scroll", onVV);
@@ -294,7 +329,10 @@ export function TerminalScreen() {
   const keyActive = "border-emerald-300 bg-emerald-400 text-emerald-950 font-bold ring-2 ring-emerald-300/80 shadow-[0_0_14px_rgba(52,211,153,0.7)]";
 
   return (
-    <div className="relative flex h-full flex-col bg-[#0d1117] pb-36 font-mono text-emerald-400">
+    <div
+      className="relative flex h-full flex-col bg-[#0d1117] pb-36 font-mono text-emerald-400"
+      style={kbHeight !== null ? { height: `${kbHeight}px` } : undefined}
+    >
       <div className="flex items-center justify-between border-b border-emerald-900/40 px-3 py-2 text-[11px]">
         <span className="flex items-center gap-1.5 text-emerald-300/80">
           <TermIcon className="h-3.5 w-3.5" />
