@@ -12,6 +12,50 @@ import { cn } from "@/lib/utils";
 // Unified settings key — same as SettingsModal
 const SETTINGS_KEY = "hokma.settings.v1";
 
+// ── FASE 4 — temas de cores do terminal ──
+// Persistido em localStorage "hokma.terminal.theme.v1" e propagado ao
+// TerminalScreen via CustomEvent (mesma aba) — o xterm aplica em runtime.
+export const TERMINAL_THEME_KEY = "hokma.terminal.theme.v1";
+export const TERMINAL_THEME_EVENT = "hokma:terminal-theme";
+export const TERMINAL_THEMES: Record<string, { name: string; colors: string[]; theme: Record<string, string> }> = {
+  dark: {
+    name: "Dark",
+    colors: ["#0d1117", "#6ee7b7", "#34d399", "#f87171"],
+    theme: {
+      background: "#0d1117", foreground: "#6ee7b7", cursor: "#34d399", cursorAccent: "#0d1117",
+      selectionBackground: "#34d39933", black: "#0d1117", red: "#f87171", green: "#34d399", yellow: "#f5b942",
+      blue: "#60a5fa", magenta: "#a78bfa", cyan: "#22d3ee", white: "#e5e7eb",
+      brightBlack: "#4b5563", brightRed: "#f87171", brightGreen: "#6ee7b7", brightYellow: "#fde68a",
+      brightBlue: "#93c5fd", brightMagenta: "#c4b5fd", brightCyan: "#67e8f9", brightWhite: "#ffffff",
+    },
+  },
+  solarized: {
+    name: "Solarized Dark",
+    colors: ["#002b36", "#93a1a1", "#b58900", "#dc322f"],
+    theme: {
+      background: "#002b36", foreground: "#93a1a1", cursor: "#b58900", cursorAccent: "#002b36",
+      selectionBackground: "#07364299", black: "#073642", red: "#dc322f", green: "#859900", yellow: "#b58900",
+      blue: "#268bd2", magenta: "#d33682", cyan: "#2aa198", white: "#eee8d5",
+      brightBlack: "#586e75", brightRed: "#cb4b16", brightGreen: "#859900", brightYellow: "#b58900",
+      brightBlue: "#268bd2", brightMagenta: "#6c71c4", brightCyan: "#2aa198", brightWhite: "#fdf6e3",
+    },
+  },
+  contrast: {
+    name: "Alto Contraste",
+    colors: ["#000000", "#ffffff", "#00ff00", "#ff4444"],
+    theme: {
+      background: "#000000", foreground: "#ffffff", cursor: "#00ff00", cursorAccent: "#000000",
+      selectionBackground: "#ffffff33", black: "#000000", red: "#ff4444", green: "#44ff44", yellow: "#ffff44",
+      blue: "#4488ff", magenta: "#ff44ff", cyan: "#44ffff", white: "#ffffff",
+      brightBlack: "#666666", brightRed: "#ff6666", brightGreen: "#66ff66", brightYellow: "#ffff66",
+      brightBlue: "#66aaff", brightMagenta: "#ff66ff", brightCyan: "#66ffff", brightWhite: "#ffffff",
+    },
+  },
+};
+export function readTerminalTheme(): string {
+  try { return localStorage.getItem(TERMINAL_THEME_KEY) || "dark"; } catch { return "dark"; }
+}
+
 // Mapeia campos da tela para as chaves do backend (GET /settings devolve
 // <key>Configured como boolean — sem valores em texto puro)
 const SERVER_KEY_MAP: Record<string, string> = {
@@ -195,6 +239,45 @@ export function SettingsScreen() {
           </div>
           );
         })}
+      </Card>
+
+      {/* ── FASE 4 — Tema de cores do terminal ── */}
+      <Card className="mt-4 space-y-3">
+        <div>
+          <label className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Tema do Terminal
+          </label>
+          <p className="mb-2 text-[11px] text-muted-foreground/70">
+            Cores do terminal (xterm.js) — aplica na hora, sem reconectar.
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {Object.entries(TERMINAL_THEMES).map(([key, t]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => {
+                try { localStorage.setItem(TERMINAL_THEME_KEY, key); } catch { /* noop */ }
+                window.dispatchEvent(new CustomEvent(TERMINAL_THEME_EVENT, { detail: { theme: key } }));
+                markSaved("Terminal Theme");
+              }}
+              data-testid={`theme-${key}`}
+              className={cn(
+                "rounded-xl border px-2 py-2 text-left transition-colors",
+                (vals["Terminal Theme"] || readTerminalTheme()) === key
+                  ? "border-[color:var(--amber)] shadow-[var(--shadow-amber-glow)]"
+                  : "border-border hover:bg-accent",
+              )}
+            >
+              <div className="mb-1.5 flex gap-1">
+                {t.colors.map((c) => (
+                  <span key={c} className="h-3 w-3 rounded-full" style={{ background: c }} />
+                ))}
+              </div>
+              <span className="text-[11px] font-semibold">{t.name}</span>
+            </button>
+          ))}
+        </div>
       </Card>
       {serverError && (
         <div className="mt-4 rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-500">

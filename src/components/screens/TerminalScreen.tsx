@@ -6,6 +6,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { cn } from "@/lib/utils";
 import { useTerminal } from "@/hooks/use-terminal";
+import { TERMINAL_THEMES, TERMINAL_THEME_KEY, TERMINAL_THEME_EVENT, readTerminalTheme } from "./SettingsScreen";
 
 const TERMINAL_STATE_KEY = "hokma.terminal.state.v1";
 const HISTORY_MAX = 200;
@@ -250,23 +251,13 @@ export function TerminalScreen() {
     const host = hostRef.current;
     if (!host || termRef.current) return;
 
+    const savedTheme = TERMINAL_THEMES[readTerminalTheme()] ?? TERMINAL_THEMES.dark;
     const term = new Terminal({
       fontSize: 12.5,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
       cursorBlink: true,
       scrollback: 10000,
-      theme: {
-        background: "#0d1117",
-        foreground: "#6ee7b7",
-        cursor: "#34d399",
-        cursorAccent: "#0d1117",
-        selectionBackground: "#34d39933",
-        black: "#0d1117", red: "#f87171", green: "#34d399", yellow: "#f5b942",
-        blue: "#60a5fa", magenta: "#a78bfa", cyan: "#22d3ee", white: "#e5e7eb",
-        brightBlack: "#4b5563", brightRed: "#f87171", brightGreen: "#6ee7b7",
-        brightYellow: "#fde68a", brightBlue: "#93c5fd", brightMagenta: "#c4b5fd",
-        brightCyan: "#67e8f9", brightWhite: "#ffffff",
-      },
+      theme: { ...savedTheme.theme },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -523,6 +514,31 @@ export function TerminalScreen() {
       fitRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── FASE 4 — tema de cores do terminal (dark / solarized / alto contraste) ──
+  // Lido do localStorage no mount e atualizado em runtime via CustomEvent
+  // (disparado pelo seletor nas Configurações) — xterm.options.theme reaplica.
+  useEffect(() => {
+    const apply = (key: string) => {
+      const t = termRef.current;
+      if (!t) return;
+      const th = TERMINAL_THEMES[key] ?? TERMINAL_THEMES.dark;
+      t.options.theme = { ...th.theme };
+    };
+    const onEvent = (e: Event) => {
+      const d = (e as CustomEvent).detail as { theme?: string } | undefined;
+      if (d?.theme) apply(d.theme);
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === TERMINAL_THEME_KEY) apply(e.newValue ?? "dark");
+    };
+    window.addEventListener(TERMINAL_THEME_EVENT, onEvent);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(TERMINAL_THEME_EVENT, onEvent);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   // Acompanha a borda superior do teclado virtual (Android) via visualViewport:
