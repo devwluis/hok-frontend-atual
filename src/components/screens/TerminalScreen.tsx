@@ -1,6 +1,6 @@
 "use client";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw, FileText, Loader2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "lucide-react";
+import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw, FileText, Loader2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Copy, Check, ListChecks, ClipboardPaste } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -193,6 +193,7 @@ type TerminalTabBodyProps = {
 export type TerminalTabBodyHandle = {
   focus: () => void;
   openLog: () => void;
+  copyAll: () => Promise<boolean>;
 };
 
 const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(function TerminalTabBody(
@@ -553,28 +554,69 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
   const longPressFiredRef = useRef(false);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const [selMenu, setSelMenu] = useState<{ x: number; y: number } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleCopy = async () => {
-    const sel = termRef.current?.getSelection() ?? "";
+  // Feedback do menu (estilo Termius): copiar / colar / erro de clipboard
+  const [menuMsg, setMenuMsg] = useState<"copy" | "paste" | "paste-err" | null>(null);
+  const msgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Linha âncora da seleção por long-press: arrastar ESTENDE a seleção
+  const selAnchorRowRef = useRef<number | null>(null);
+
+  const copyToClipboard = async (text: string): Promise<boolean> => {
     try {
-      await navigator.clipboard.writeText(sel);
-      setCopied(true);
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-      copyTimerRef.current = setTimeout(() => { setSelMenu(null); setCopied(false); }, 1400);
+      await navigator.clipboard.writeText(text);
+      return true;
     } catch {
       try {
         const ta = document.createElement("textarea");
-        ta.value = sel;
+        ta.value = text;
         document.body.appendChild(ta);
         ta.select();
-        document.execCommand("copy");
+        const ok = document.execCommand("copy");
         ta.remove();
-        setCopied(true);
-        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-        copyTimerRef.current = setTimeout(() => { setSelMenu(null); setCopied(false); }, 1400);
-      } catch { setSelMenu(null); }
+        return ok;
+      } catch { return false; }
     }
+  };
+  const flashMenuMsg = (msg: "copy" | "paste" | "paste-err") => {
+    setMenuMsg(msg);
+    if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
+    msgTimerRef.current = setTimeout(() => { setSelMenu(null); setMenuMsg(null); }, 1400);
+  };
+  const handleCopy = async () => {
+    const sel = termRef.current?.getSelection() ?? "";
+    if (!sel) { setSelMenu(null); return; }
+    if (await copyToClipboard(sel)) flashMenuMsg("copy");
+    else setSelMenu(null);
+  };
+  const handleSelectAll = () => {
+    try { termRef.current?.selectAll(); } catch { /* noop */ }
+  };
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) writeToShell(text);
+      flashMenuMsg("paste");
+    } catch {
+      flashMenuMsg("paste-err");
+    }
+  };
+  // Copia TODO o scrollback (buffer inteiro), sem selecionar visualmente —
+  // ideal p/ mobile (equivalente ao "Select all + Copy" do Termius).
+  const copyAllText = (): string => {
+    const t = termRef.current;
+    if (!t) return "";
+    const buf = t.buffer.active;
+    const n = buf.length;
+    const parts: string[] = [];
+    for (let y = 0; y < n; y++) {
+      const line = buf.getLine(y)?.translateToString(true);
+      if (line !== undefined) parts.push(line);
+    }
+    return parts.join("\n");
+  };
+  const handleCopyAll = async (): Promise<boolean> => {
+    const text = copyAllText();
+    if (!text) return false;
+    return copyToClipboard(text);
   };
   useEffect(() => {
     const host = hostRef.current;
@@ -601,11 +643,12 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
             const b = term.buffer.active;
             const absRow = b ? b.baseY + row : row;
             longPressFiredRef.current = true;
+            selAnchorRowRef.current = absRow;
             term.selectLines(absRow, absRow);
             const x = Math.max(8, Math.min(touchStartPosRef.current.x, window.innerWidth - 130));
-            const y = Math.max(8, Math.min(touchStartPosRef.current.y, window.innerHeight - 90));
+            const y = Math.max(8, Math.min(touchStartPosRef.current.y, window.innerHeight - 150));
             setSelMenu({ x, y });
-            setCopied(false);
+            setMenuMsg(null);
           }
         }, 550);
       }
@@ -616,6 +659,29 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
         const dy = e.touches[0].clientY - touchStartPosRef.current.y;
         if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
           if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+        }
+      }
+      // Long-press disparado: arrastar ESTENDE a seleção (linha âncora →
+      // linha atual), em vez de rolar o buffer — seleção parcial estilo
+      // Termius sem tocar em nada da lógica do pty.
+      if (longPressFiredRef.current) {
+        const term = termRef.current;
+        const screen = host.querySelector<HTMLElement>(".xterm-screen");
+        if (term && screen && selAnchorRowRef.current !== null && e.touches.length === 1) {
+          const rect = screen.getBoundingClientRect();
+          if (rect.height > 0 && term.rows > 0) {
+            const row = Math.floor((e.touches[0].clientY - rect.top) / (rect.height / term.rows));
+            if (row >= 0 && row < term.rows) {
+              const b = term.buffer.active;
+              const cur = b ? b.baseY + row : row;
+              term.selectLines(
+                Math.min(selAnchorRowRef.current, cur),
+                Math.max(selAnchorRowRef.current, cur),
+              );
+              e.preventDefault();
+              return;
+            }
+          }
         }
       }
       const t = termRef.current;
@@ -648,13 +714,14 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
       host.removeEventListener("touchmove", onTouchMove);
       host.removeEventListener("touchend", onTouchEnd);
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
     };
   }, []);
 
   useImperativeHandle(ref, () => ({
     focus: () => { try { termRef.current?.textarea?.focus(); } catch { /* ignore */ } },
     openLog: () => { showLogRef.current = true; setShowLog(true); },
+    copyAll: () => handleCopyAll(),
   }), []);
 
   // ── Scrollbar customizada real (buffer de 10000 linhas) ──
@@ -742,15 +809,25 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
         )}
       </div>
 
-      {/* FASE 2 — menu de copiar por long-press */}
+      {/* FASE 2 — menu de cópia por long-press (estilo Termius) */}
       {selMenu && (
         <div data-testid="sel-menu"
-          className="fixed z-50 rounded-xl border border-emerald-900/50 bg-[#0d1117]/95 px-2 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm"
+          className="fixed z-50 flex flex-col gap-0.5 rounded-xl border border-emerald-900/50 bg-[#0d1117]/95 px-1.5 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm"
           style={{ left: selMenu.x, top: selMenu.y }}>
           <button type="button" onClick={handleCopy} data-testid="sel-copy"
-            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-mono text-emerald-300 hover:bg-emerald-500/15">
-            <FileText className="h-3 w-3" />
-            {copied ? "Copiado ✓" : "Copiar linha"}
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-mono text-emerald-300 hover:bg-emerald-500/15">
+            <Copy className="h-3 w-3" />
+            {menuMsg === "copy" ? "Copiado ✓" : "Copiar"}
+          </button>
+          <button type="button" onClick={handleSelectAll} data-testid="sel-select-all"
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-mono text-emerald-300 hover:bg-emerald-500/15">
+            <ListChecks className="h-3 w-3" />
+            Selecionar tudo
+          </button>
+          <button type="button" onClick={handlePaste} data-testid="sel-paste"
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-mono text-emerald-300 hover:bg-emerald-500/15">
+            <ClipboardPaste className="h-3 w-3" />
+            {menuMsg === "paste" ? "Colado ✓" : menuMsg === "paste-err" ? "Sem acesso ao clipboard" : "Colar"}
           </button>
         </div>
       )}
@@ -791,6 +868,17 @@ export function TerminalScreen() {
   const [armed, setArmed] = useState<ArmedMods>(NO_MODS);
   const [kbInset, setKbInset] = useState(0);
   const [vvHeight, setVvHeight] = useState<number | null>(null);
+  // FIX 21/08 — botão fixo "Copiar tudo" (scrollback inteiro) no header
+  const [copiedAll, setCopiedAll] = useState(false);
+  const copyAllTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onCopyAll = async () => {
+    const ok = await bodyRefs.current.get(activeTabId)?.copyAll();
+    if (ok) {
+      setCopiedAll(true);
+      if (copyAllTimerRef.current) clearTimeout(copyAllTimerRef.current);
+      copyAllTimerRef.current = setTimeout(() => setCopiedAll(false), 1400);
+    }
+  };
   const [tuiStates, setTuiStates] = useState<Record<string, boolean>>({});
   const tuiActive = !!tuiStates[activeTabId];
   const writeActive = useCallback((data: string) => write(activeTabId, data), [write, activeTabId]);
@@ -917,6 +1005,10 @@ export function TerminalScreen() {
               : <Circle className="h-2 w-2" style={{ fill: statusColor }} />}
             {statusLabel}
           </span>
+          <button onClick={onCopyAll} title="Copiar tudo (scrollback inteiro)" data-testid="term-copy-all"
+            className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
+            {copiedAll ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          </button>
           <button onClick={() => bodyRefs.current.get(activeTabId)?.openLog()} title="Ver contexto completo (modo leitura)"
             className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
             <FileText className="h-3.5 w-3.5" />
