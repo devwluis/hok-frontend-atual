@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw, CornerDownLeft, CornerUpLeft, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -86,16 +86,32 @@ export function TerminalScreen() {
   const armedAtRef = useRef(0);
   const { conn, note, connect, ensureConnected, write, sendResize, subscribeOutput, subscribeLive, getRecentOutput } = useTerminal();
   const [armed, setArmed] = useState<ArmedMod>("none");
-  const [focused, setFocused] = useState(false);
   const [kbInset, setKbInset] = useState(0);
-  // Altura visível (px) quando o teclado virtual está aberto (null = fechado).
-  const [kbHeight, setKbHeight] = useState<number | null>(null);
   // true enquanto o usuário está no fundo do buffer (digitando/stream ao vivo);
   // false quando rolou pra cima de propósito (modo histórico — NÃO forçar scroll).
   const atBottomRef = useRef(true);
   // Métricas do buffer (viewportY/baseY) para a scrollbar customizada real.
   const [scrollInfo, setScrollInfo] = useState<{ v: number; b: number }>({ v: 0, b: 0 });
   const trackRef = useRef<HTMLDivElement>(null);
+  // Resize do pty: debounce curto (~150ms) para não floodar o WebSocket em
+  // mudanças reais de tamanho (rotação da tela / redimensionamento da janela).
+  // O teclado virtual NÃO dispara mais isso — a barra de teclas é uma accessory
+  // view fixa acima do teclado e o terminal permanece intacto (estratégia Termius).
+  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleResizeSend = useCallback(() => {
+    if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
+    resizeTimerRef.current = setTimeout(() => {
+      resizeTimerRef.current = null;
+      const t = termRef.current;
+      const fit = fitRef.current;
+      if (!t || !fit) return;
+      try {
+        fit.fit();
+        const dims = fit.proposeDimensions();
+        if (dims && dims.cols > 0 && dims.rows > 0) sendResize(dims.cols, dims.rows);
+      } catch { /* noop */ }
+    }, 150);
+  }, [sendResize]);
 
   const writeToShell = (data: string) => write(data);
 
@@ -105,7 +121,6 @@ export function TerminalScreen() {
   // aberto e captura a próxima tecla do teclado do sistema.
   const refocusTerminal = () => {
     try { termRef.current?.textarea?.focus(); } catch { /* ignore */ }
-    setFocused(true); // o toque no botão dispara blur na textarea; garante a barra visível
   };
   const setMod = (mod: ArmedMod) => {
     armedRef.current = mod;
@@ -204,14 +219,6 @@ export function TerminalScreen() {
       writeToShell(data);
     });
 
-    // Detecta foco do input do terminal (textarea oculto do xterm) para
-    // mostrar a barra de teclas especiais acima do teclado virtual.
-    const ta = host.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
-    if (ta) {
-      ta.addEventListener("focus", () => setFocused(true));
-      ta.addEventListener("blur", () => setFocused(false));
-    }
-
     // Restaura o estado visual ao montar:
     // - Se o socket JÁ está vivo (troca de aba com TerminalProvider ativo):
     //   restaura histórico do localStorage + output recente do provider.
@@ -263,9 +270,13 @@ export function TerminalScreen() {
 
     const onResize = () => {
       try {
+        // fit visual imediato (redesenha o xterm); envio do resize ao pty é
+        // debounced via scheduleResizeSend (150ms). Só dispara em mudança real
+        // de tamanho (rotação/redimensionamento da janela) — o teclado virtual
+        // NÃO chega aqui (o terminal mantém o tamanho cheio; a barra de teclas
+        // é fixed e não afeta o layout).
         fit.fit();
-        const dims = fit.proposeDimensions();
-        if (dims) sendResize(dims.cols, dims.rows);
+        scheduleResizeSend();
         // Auto-scroll do redimensionamento SÓ quando o usuário está no fundo
         // (digitando ativamente). Se rolou pra cima de propósito (modo
         // histórico), preserva a posição — não briga com o scroll manual.
@@ -286,6 +297,7 @@ export function TerminalScreen() {
       clearInterval(saveTimer);
       unsub();
       unsubLive();
+      if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       const t = termRef.current;
       if (t) writeTerminalState("pty-1", snapshotTerminalLines(t)); // save final no unmount
       ro.disconnect();
@@ -296,24 +308,18 @@ export function TerminalScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Altura do teclado virtual (Android): quando abre, o visualViewport encolhe.
-  // Usa isso para ancorar a barra de teclas logo acima do teclado E para
-  // redimensionar o container do terminal à área visível — assim a linha de
-  // comando/cursor fica sempre acima do teclado, sem ficar escondida.
+  // Acompanha a borda superior do teclado virtual (Android) via visualViewport:
+  // window.innerHeight - vv.height = altura do teclado (kbInset). Usado SÓ para
+  // ancorar a barra de teclas como "input accessory view" (position: fixed com
+  // bottom = kbInset), replicando o comportamento do Termius: a barra gruda
+  // imediatamente acima do teclado, fixa e estável, e desce/some quando ele fecha.
+  // NÃO redimensiona o terminal nem dispara resize do pty — o conteúdo do xterm
+  // permanece intacto (evita o desalinhamento da TUI do OpenCode).
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
     const onVV = () => {
-      const inset = Math.max(0, window.innerHeight - vv.height);
-      setKbInset(inset);
-      // Teclado aberto → limita a altura do terminal ao espaço visível acima
-      // dele; fechado → null (restaura h-full/h-dvh original).
-      setKbHeight(inset > 0 ? Math.max(0, vv.height) : null);
-      // Mantém o cursor visível após o redimensionamento (o ResizeObserver →
-      // onResize refaz fit/sendResize e rola ao fundo se estiver digitando).
-      if (inset > 0 && atBottomRef.current) {
-        try { termRef.current?.scrollToBottom(); } catch { /* noop */ }
-      }
+      setKbInset(Math.max(0, window.innerHeight - vv.height));
     };
     vv.addEventListener("resize", onVV);
     vv.addEventListener("scroll", onVV);
@@ -327,7 +333,11 @@ export function TerminalScreen() {
   const statusColor = conn === "live" ? "#22c55e" : conn === "connecting" ? "#f59e0b" : "#ef4444";
   const statusLabel = conn === "live" ? "LIVE" : conn === "connecting" ? "CONECTANDO…" : "OFFLINE";
 
-  const showKeysBar = focused || armed !== "none";
+  // A barra é uma accessory view do teclado (como no Termius): existe enquanto
+  // o teclado virtual está aberto (kbInset > 0), independente de estado de foco
+  // — evita flicker ao tocar nos botões (o toque rouba o foco da textarea).
+  // Teclado fechado → desce/some junto.
+  const showKeysBar = kbInset > 0;
 
   // ── Scrollbar customizada real (buffer de 10000 linhas) ──
   // Conectada ao xterm: term.onScroll atualiza scrollInfo e o drag chama
@@ -370,10 +380,7 @@ export function TerminalScreen() {
   const keyActive = "border-emerald-300 bg-emerald-400 text-emerald-950 font-bold ring-2 ring-emerald-300/80 shadow-[0_0_14px_rgba(52,211,153,0.7)]";
 
   return (
-    <div
-      className="relative flex h-full flex-col bg-[#0d1117] pb-36 font-mono text-emerald-400"
-      style={kbHeight !== null ? { height: `${kbHeight}px` } : undefined}
-    >
+    <div className="relative flex h-full flex-col bg-[#0d1117] pb-36 font-mono text-emerald-400">
       <div className="flex items-center justify-between border-b border-emerald-900/40 px-3 py-2 text-[11px]">
         <span className="flex items-center gap-1.5 text-emerald-300/80">
           <TermIcon className="h-3.5 w-3.5" />
@@ -445,9 +452,12 @@ export function TerminalScreen() {
       </div>
 
       {/* ── Barra de teclas especiais (mobile) — ancorada acima do teclado virtual ── */}
+      {/* Barra de teclas = "input accessory view" (Termius): fixed na borda
+          inferior da janela, com bottom = kbInset (topo do teclado virtual).
+          NÃO participa do layout → o terminal não reflowa nem reposiciona. */}
       <div
-        className="pointer-events-none absolute inset-x-0 z-40 px-2"
-        style={{ bottom: showKeysBar ? kbInset + (kbInset > 0 ? 8 : 116) : -64, transition: "bottom 0.18s ease" }}
+        className="pointer-events-none fixed inset-x-0 z-40 px-2"
+        style={{ bottom: showKeysBar ? kbInset + 8 : -72, transition: "bottom 0.18s ease" }}
         data-testid="special-keys-bar"
       >
         <div className="pointer-events-auto thin-scroll mx-auto flex max-w-full items-center gap-2 overflow-x-auto rounded-2xl border border-emerald-900/50 bg-[#0d1117]/95 px-2 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm">
