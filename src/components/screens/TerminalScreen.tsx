@@ -60,6 +60,72 @@ const QUICK = [
 
 type ArmedMod = "none" | "ctrl" | "alt";
 
+// ── FASE 3 — tecla com gesto de swipe ──
+// Swipe para CIMA na tecla aciona onSwipeUp; swipe para BAIXO aciona
+// onSwipeDown; toque simples mantem o onClick normal. O preventDefault no
+// touchend impede o click sintetico apos o gesto (React nao marca touchend
+// como passive, entao funciona). Feedback visual: setinha ↑/↓ pisca no botao.
+function SwipeKey({
+  onSwipeUp,
+  onSwipeDown,
+  className,
+  children,
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  onSwipeUp?: () => void;
+  onSwipeDown?: () => void;
+}) {
+  const yRef = useRef<number | null>(null);
+  const firedRef = useRef<"up" | "down" | null>(null);
+  const [flash, setFlash] = useState<"up" | "down" | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  return (
+    <button
+      {...rest}
+      className={cn(className, "relative touch-manipulation")}
+      onTouchStart={(e) => {
+        if (e.touches.length === 1) {
+          yRef.current = e.touches[0].clientY;
+          firedRef.current = null;
+        }
+      }}
+      onTouchMove={(e) => {
+        if (yRef.current === null || firedRef.current) return;
+        const dy = e.touches[0].clientY - yRef.current;
+        if (dy <= -24) {
+          firedRef.current = "up";
+          setFlash("up");
+          if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+          flashTimerRef.current = setTimeout(() => setFlash(null), 300);
+          onSwipeUp?.();
+        } else if (dy >= 24) {
+          firedRef.current = "down";
+          setFlash("down");
+          if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+          flashTimerRef.current = setTimeout(() => setFlash(null), 300);
+          onSwipeDown?.();
+        }
+      }}
+      onTouchEnd={(e) => {
+        if (firedRef.current) e.preventDefault(); // gesto consumido: sem click
+        yRef.current = null;
+      }}
+    >
+      {children}
+      {flash && (
+        <span
+          className={cn(
+            "pointer-events-none absolute left-1/2 -translate-x-1/2 text-[9px] font-bold",
+            flash === "up" ? "-top-2" : "-bottom-2",
+          )}
+        >
+          {flash === "up" ? "↑" : "↓"}
+        </span>
+      )}
+    </button>
+  );
+}
+
 // Remove sequências de escape ANSI (CSI/OSC/charset) deixando texto puro legível
 // para o "modo leitura" (contexto completo das conversas do OpenCode/Claude).
 const ANSI_RE = /\x1b\[[0-9;:?]*[\x20-\x2f]*[A-Za-z]|\x1bP[\x20-\x7e]*?\x1b\\|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[()][A-Z0-9]|\x1b[=>]|\x1b[NO]/g;
@@ -164,6 +230,21 @@ export function TerminalScreen() {
     setMod("none");
     writeToShell(dir === "up" ? "\x1b[A" : dir === "down" ? "\x1b[B" : dir === "right" ? "\x1b[C" : "\x1b[D");
   };
+
+  // ── FASE 3 — mapeamento dos gestos de swipe nas teclas especiais ──
+  // Ctrl ↑ → Ctrl+C (interromper) · Ctrl ↓ → Ctrl+D (EOF)
+  // Alt  ↑ → Ctrl+Alt+G (atalho do terminal/OpenCode) · Alt ↓ → Ctrl+Z (suspende)
+  // Esc  ↑ → Ctrl+L (limpa tela) · Esc ↓ → Ctrl+R (reverse-search do bash)
+  // ↑ (seta)  ↑ → PageUp · ↓ (seta) ↓ → PageDown (rolar TUIs/OpenCode)
+  const swipePress = (fn: () => void) => () => { fn(); refocusTerminal(); };
+  const swipeCtrlUp = swipePress(() => { setMod("none"); writeToShell("\x03"); });
+  const swipeCtrlDown = swipePress(() => { setMod("none"); writeToShell("\x04"); });
+  const swipeAltUp = swipePress(() => { setMod("none"); writeToShell("\x1b\x07"); });
+  const swipeAltDown = swipePress(() => { setMod("none"); writeToShell("\x1a"); });
+  const swipeEscUp = swipePress(() => { setMod("none"); writeToShell("\x0c"); });
+  const swipeEscDown = swipePress(() => { setMod("none"); writeToShell("\x12"); });
+  const swipeUpUp = swipePress(() => { setMod("none"); writeToShell("\x1b[5~"); });
+  const swipeDownDown = swipePress(() => { setMod("none"); writeToShell("\x1b[6~"); });
 
   useEffect(() => {
     const host = hostRef.current;
@@ -759,24 +840,29 @@ export function TerminalScreen() {
         data-testid="special-keys-bar"
       >
         <div className="pointer-events-auto thin-scroll mx-auto flex max-w-full items-center gap-2 overflow-x-auto rounded-2xl border border-emerald-900/50 bg-[#0d1117]/95 px-2 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm">
-          <button type="button" onPointerDown={pressCtrl} onClick={pressCtrl} data-testid="key-ctrl"
-            className={cn(keyBase, "touch-manipulation active:bg-emerald-400 active:text-emerald-950", armed === "ctrl" ? keyActive : keyIdle)}>Ctrl</button>
-          <button type="button" onPointerDown={pressAlt} onClick={pressAlt} data-testid="key-alt"
-            className={cn(keyBase, "touch-manipulation active:bg-emerald-400 active:text-emerald-950", armed === "alt" ? keyActive : keyIdle)}>Alt</button>
-          <button type="button" onClick={pressEsc} data-testid="key-esc"
-            className={cn(keyBase, keyIdle)}>Esc</button>
-          <button type="button" onClick={pressTab} data-testid="key-tab"
-            className={cn(keyBase, keyIdle)}>Tab</button>
+          <SwipeKey type="button" onPointerDown={pressCtrl} onClick={pressCtrl}
+            onSwipeUp={swipeCtrlUp} onSwipeDown={swipeCtrlDown} data-testid="key-ctrl"
+            className={cn(keyBase, "active:bg-emerald-400 active:text-emerald-950", armed === "ctrl" ? keyActive : keyIdle)}>Ctrl</SwipeKey>
+          <SwipeKey type="button" onPointerDown={pressAlt} onClick={pressAlt}
+            onSwipeUp={swipeAltUp} onSwipeDown={swipeAltDown} data-testid="key-alt"
+            className={cn(keyBase, "active:bg-emerald-400 active:text-emerald-950", armed === "alt" ? keyActive : keyIdle)}>Alt</SwipeKey>
+          <SwipeKey type="button" onClick={pressEsc}
+            onSwipeUp={swipeEscUp} onSwipeDown={swipeEscDown} data-testid="key-esc"
+            className={cn(keyBase, keyIdle)}>Esc</SwipeKey>
+          <SwipeKey type="button" onClick={pressTab} data-testid="key-tab"
+            className={cn(keyBase, keyIdle)}>Tab</SwipeKey>
           <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
           <button type="button" onClick={pressCtrlC} data-testid="key-ctrlc"
             className={cn(keyBase, keyIdle, "text-red-300")}>Ctrl<span className="ml-0.5 text-[9px]">C</span></button>
           <button type="button" onClick={pressCtrlD} data-testid="key-ctrld"
             className={cn(keyBase, keyIdle, "text-red-300")}>Ctrl<span className="ml-0.5 text-[9px]">D</span></button>
           <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
-          <button type="button" onClick={() => pressArrow("up")} data-testid="key-up"
-            className={cn(keyBase, keyIdle)} aria-label="Seta para cima"><ArrowUp className="h-4 w-4" /></button>
-          <button type="button" onClick={() => pressArrow("down")} data-testid="key-down"
-            className={cn(keyBase, keyIdle)} aria-label="Seta para baixo"><ArrowDown className="h-4 w-4" /></button>
+          <SwipeKey type="button" onClick={() => pressArrow("up")}
+            onSwipeUp={swipeUpUp} onSwipeDown={swipeDownDown} data-testid="key-up"
+            className={cn(keyBase, keyIdle)} aria-label="Seta para cima"><ArrowUp className="h-4 w-4" /></SwipeKey>
+          <SwipeKey type="button" onClick={() => pressArrow("down")}
+            onSwipeUp={swipeUpUp} onSwipeDown={swipeDownDown} data-testid="key-down"
+            className={cn(keyBase, keyIdle)} aria-label="Seta para baixo"><ArrowDown className="h-4 w-4" /></SwipeKey>
           <button type="button" onClick={() => pressArrow("left")} data-testid="key-left"
             className={cn(keyBase, keyIdle)} aria-label="Seta para a esquerda"><ArrowLeft className="h-4 w-4" /></button>
           <button type="button" onClick={() => pressArrow("right")} data-testid="key-right"
