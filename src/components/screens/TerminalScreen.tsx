@@ -71,6 +71,10 @@ function readQuickCmds(): string[] {
 }
 
 type ArmedMod = "none" | "ctrl" | "alt";
+// BUG 3 — modificadores viram conjunto independente (toggle: tocar de novo
+// desativa; Ctrl e Alt podem ficar ativos juntos p/ combinações Ctrl+Alt).
+type ArmedMods = { ctrl: boolean; alt: boolean };
+const NO_MODS: ArmedMods = { ctrl: false, alt: false };
 
 // ── FASE 3 — tecla com gesto de swipe ──
 // Swipe para CIMA na tecla aciona onSwipeUp; swipe para BAIXO aciona
@@ -145,6 +149,10 @@ const stripAnsi = (t: string) => t.replace(ANSI_RE, "");
 // Cap do log: ~400KB de texto puro (evita travar o mobile)
 const LOG_MAX_CHARS = 400_000;
 
+// BUG 1 — posição de scroll preservada ao minimizar/trocar de tela:
+// map do módulo (sobrevive ao desmonte do componente) tabId -> viewportY.
+const savedScrollY = new Map<string, number>();
+
 // Mapeia tecla única (do teclado do sistema) para o código de controle Ctrl+<tecla>
 function ctrlCode(data: string): string | null {
   if (data.length !== 1) return null;
@@ -174,10 +182,10 @@ function ctrlCode(data: string): string | null {
 type TerminalTabBodyProps = {
   tabId: string;
   visible: boolean;
-  armed: ArmedMod;
-  armedRef: React.MutableRefObject<ArmedMod>;
+  armed: ArmedMods;
+  armedRef: React.MutableRefObject<ArmedMods>;
   armedAtRef: React.MutableRefObject<number>;
-  onArmedChange: (m: ArmedMod) => void;
+  onArmedChange: (m: ArmedMods) => void;
   onTuiChange: (active: boolean) => void;
   everLiveRef: React.MutableRefObject<boolean>;
 };
@@ -251,6 +259,8 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
   }, [tabId]);
 
   const writeToShell = useCallback((data: string) => termApi.write(tabId, data), [tabId]);
+  // Posição de scroll a restaurar no próximo write (BUG 1)
+  const pendingRestoreRef = useRef<number | null>(null);
   // Ref espelhado do visible (o onResize é closure do mount e o prop muda)
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
@@ -258,6 +268,9 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
   useEffect(() => {
     const host = hostRef.current;
     if (!host || termRef.current) return;
+
+    const savedY = savedScrollY.get(tabId);
+    if (savedY !== undefined) pendingRestoreRef.current = savedY;
 
     const savedTheme = TERMINAL_THEMES[readTerminalTheme()] ?? TERMINAL_THEMES.dark;
     const term = new Terminal({
@@ -314,27 +327,29 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
       if (!atBottomRef.current) {
         try { term.scrollToBottom(); } catch { /* noop */ }
       }
-      const mod = armedRef.current;
-      if (mod !== "none") {
-        if (Date.now() - armedAtRef.current < 350) {
-          if (mod === "ctrl") {
-            const code = ctrlCode(data);
-            if (code) { writeToShell(code); return; }
-          } else if (mod === "alt") {
-            if (data.length === 1) { writeToShell("\x1b" + data); return; }
-          }
-          writeToShell(data);
-          return;
+      const mods = armedRef.current;
+      if (mods.ctrl || mods.alt) {
+        const locked = Date.now() - armedAtRef.current < 350;
+        const ctrlPart = mods.ctrl ? ctrlCode(data) : null;
+        const altPart = mods.alt && data.length === 1 ? data : null;
+        let out: string;
+        if (mods.ctrl && mods.alt) {
+          // Ctrl+Alt+tecla = ESC + Ctrl+tecla
+          out = "\x1b" + (ctrlPart ?? altPart ?? data);
+        } else if (mods.ctrl) {
+          out = ctrlPart ?? data;
+        } else {
+          out = altPart ?? data;
         }
-        armedRef.current = "none";
-        armedAtRef.current = 0;
-        onArmedChange("none");
-        if (mod === "ctrl") {
-          const code = ctrlCode(data);
-          if (code) { writeToShell(code); return; }
-        } else if (mod === "alt") {
-          if (data.length === 1) { writeToShell("\x1b" + data); return; }
+        // Lockout pós-armamento (~350ms): o refocus do teclado gera um evento
+        // fantasma — aplica o modificador mas NÃO desarma.
+        if (!locked) {
+          armedRef.current = NO_MODS;
+          armedAtRef.current = 0;
+          onArmedChange(NO_MODS);
         }
+        writeToShell(out);
+        return;
       }
       writeToShell(data);
     });
@@ -349,6 +364,12 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
       const recent = termApi.getRecentOutput(tabId);
       if (recent) {
         term.write(recent);
+      }
+      if (pendingRestoreRef.current !== null) {
+        const y = pendingRestoreRef.current;
+        pendingRestoreRef.current = null;
+        try { term.scrollToLine(Math.min(y, term.buffer.active.baseY)); } catch { /* noop */ }
+      } else {
         term.scrollToBottom();
       }
     }
@@ -373,8 +394,16 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
         t.write(text);
       } catch (e) {
       }
-      // ROLAGEM MANUAL: só auto-rola quando o usuário está no fundo
-      if (atBottomRef.current) t.scrollToBottom();
+      // BUG 1 — restaura a posição de scroll salva (o histórico/scrollback foi
+      // reescrito): aplica ANTES de qualquer auto-scroll.
+      if (pendingRestoreRef.current !== null) {
+        const y = pendingRestoreRef.current;
+        pendingRestoreRef.current = null;
+        try { t.scrollToLine(Math.min(y, t.buffer.active.baseY)); } catch { /* noop */ }
+      } else if (atBottomRef.current) {
+        // ROLAGEM MANUAL: só auto-rola quando o usuário está no fundo
+        t.scrollToBottom();
+      }
       // Modo leitura: stream bruto só fora de TUI (shell usa \n)
       if (!tuiActiveRef.current) {
         if (logRef.current.length + text.length > LOG_MAX_CHARS) {
@@ -464,13 +493,35 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
       unsubLive();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       const t = termRef.current;
-      if (t) writeTerminalState(stateKey, tabId, snapshotTerminalLines(t));
+      if (t) {
+        writeTerminalState(stateKey, tabId, snapshotTerminalLines(t));
+        try { savedScrollY.set(tabId, t.buffer.active.viewportY); } catch { /* noop */ }
+      }
       ro.disconnect();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabId]);
+
+  // ── BUG 1 — preserva a posição de scroll ao minimizar/voltar ──
+  // visibilitychange: hidden → salva o viewportY; visible → restaura exato.
+  useEffect(() => {
+    const onVis = () => {
+      const t = termRef.current;
+      if (!t) return;
+      if (document.hidden) {
+        try { savedScrollY.set(tabId, t.buffer.active.viewportY); } catch { /* noop */ }
+      } else {
+        const y = savedScrollY.get(tabId);
+        if (y !== undefined) {
+          try { t.scrollToLine(Math.min(y, t.buffer.active.baseY)); } catch { /* noop */ }
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, [tabId]);
 
   // ── FASE 4 — tema de cores (aplicado nesta aba + runtime) ──
@@ -735,9 +786,9 @@ export function TerminalScreen() {
   const note = activeTab?.note ?? "";
   const bodyRefs = useRef<Map<string, TerminalTabBodyHandle>>(new Map());
   const everLiveRef = useRef(false);
-  const armedRef = useRef<ArmedMod>("none");
+  const armedRef = useRef<ArmedMods>(NO_MODS);
   const armedAtRef = useRef(0);
-  const [armed, setArmed] = useState<ArmedMod>("none");
+  const [armed, setArmed] = useState<ArmedMods>(NO_MODS);
   const [kbInset, setKbInset] = useState(0);
   const [vvHeight, setVvHeight] = useState<number | null>(null);
   const [tuiStates, setTuiStates] = useState<Record<string, boolean>>({});
@@ -776,38 +827,49 @@ export function TerminalScreen() {
   const refocusTerminal = () => {
     bodyRefs.current.get(activeTabId)?.focus();
   };
-  const setMod = (mod: ArmedMod) => {
-    armedRef.current = mod;
-    armedAtRef.current = Date.now();
-    setArmed(mod);
+  const clearMods = () => {
+    armedRef.current = NO_MODS;
+    setArmed(NO_MODS);
     refocusTerminal();
   };
-  const pressCtrl = () => setMod("ctrl");
-  const pressAlt = () => setMod("alt");
-  const pressCtrlC = () => { setMod("none"); writeActive("\x03"); };
-  const pressCtrlD = () => { setMod("none"); writeActive("\x04"); };
-  const pressEsc = () => { setMod("none"); writeActive("\x1b"); };
-  const pressTab = () => { setMod("none"); writeActive("\x09"); };
+  // BUG 3 — toggle verdadeiro: tocar de novo no MESMO botão desativa; Ctrl e
+  // Alt são independentes (podem ficar ativos juntos p/ Ctrl+Alt).
+  const toggleMod = (mod: "ctrl" | "alt") => {
+    const next: ArmedMods = { ...armedRef.current, [mod]: !armedRef.current[mod] };
+    armedRef.current = next;
+    armedAtRef.current = Date.now();
+    setArmed(next);
+    refocusTerminal();
+  };
+  const pressCtrl = () => toggleMod("ctrl");
+  const pressAlt = () => toggleMod("alt");
+  const pressCtrlC = () => { clearMods(); writeActive("\x03"); };
+  const pressCtrlD = () => { clearMods(); writeActive("\x04"); };
+  const pressEsc = () => { clearMods(); writeActive("\x1b"); };
+  const pressTab = () => { clearMods(); writeActive("\x09"); };
   const pressArrow = (dir: "up" | "down" | "left" | "right") => {
-    setMod("none");
+    clearMods();
     writeActive(dir === "up" ? "\x1b[A" : dir === "down" ? "\x1b[B" : dir === "right" ? "\x1b[C" : "\x1b[D");
   };
   const swipePress = (fn: () => void) => () => { fn(); refocusTerminal(); };
-  const swipeCtrlUp = swipePress(() => { setMod("none"); writeActive("\x03"); });
-  const swipeCtrlDown = swipePress(() => { setMod("none"); writeActive("\x04"); });
-  const swipeAltUp = swipePress(() => { setMod("none"); writeActive("\x1b\x07"); });
-  const swipeAltDown = swipePress(() => { setMod("none"); writeActive("\x1a"); });
-  const swipeEscUp = swipePress(() => { setMod("none"); writeActive("\x0c"); });
-  const swipeEscDown = swipePress(() => { setMod("none"); writeActive("\x12"); });
-  const swipeUpUp = swipePress(() => { setMod("none"); writeActive("\x1b[5~"); });
-  const swipeDownDown = swipePress(() => { setMod("none"); writeActive("\x1b[6~"); });
+  const swipeCtrlUp = swipePress(() => { clearMods(); writeActive("\x03"); });
+  const swipeCtrlDown = swipePress(() => { clearMods(); writeActive("\x04"); });
+  const swipeAltUp = swipePress(() => { clearMods(); writeActive("\x1b\x07"); });
+  const swipeAltDown = swipePress(() => { clearMods(); writeActive("\x1a"); });
+  const swipeEscUp = swipePress(() => { clearMods(); writeActive("\x0c"); });
+  const swipeEscDown = swipePress(() => { clearMods(); writeActive("\x12"); });
+  const swipeUpUp = swipePress(() => { clearMods(); writeActive("\x1b[5~"); });
+  const swipeDownDown = swipePress(() => { clearMods(); writeActive("\x1b[6~"); });
 
   // Acompanha o teclado virtual (Android): ancorar a barra + modo adaptativo
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
     const onVV = () => {
-      const inset = Math.max(0, window.innerHeight - vv.height);
+      // BUG 2 — altura do teclado = innerHeight - vv.height - vv.offsetTop
+      // (offsetTop: o visualViewport desloca quando o teclado abre). Sem
+      // margem extra: a barra fica PERFEITAMENTE colada no topo do teclado.
+      const inset = Math.max(0, window.innerHeight - vv.height - (vv.offsetTop || 0));
       setKbInset(inset);
       setVvHeight(inset > 0 ? Math.max(0, vv.height) : null);
     };
@@ -980,16 +1042,16 @@ export function TerminalScreen() {
       {/* ── Barra de teclas especiais (mobile) — accessory view do teclado ── */}
       <div
         className="pointer-events-none fixed inset-x-0 z-40 px-2"
-        style={{ bottom: showKeysBar ? kbInset + 8 : -72, transition: "bottom 0.18s ease" }}
+        style={{ bottom: showKeysBar ? kbInset : -72, transition: "bottom 0.18s ease" }}
         data-testid="special-keys-bar"
       >
         <div className="pointer-events-auto thin-scroll mx-auto flex max-w-full items-center gap-2 overflow-x-auto rounded-2xl border border-emerald-900/50 bg-[#0d1117]/95 px-2 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm">
-          <SwipeKey type="button" onPointerDown={pressCtrl} onClick={pressCtrl}
+          <SwipeKey type="button" onClick={pressCtrl}
             onSwipeUp={swipeCtrlUp} onSwipeDown={swipeCtrlDown} data-testid="key-ctrl"
-            className={cn(keyBase, "active:bg-emerald-400 active:text-emerald-950", armed === "ctrl" ? keyActive : keyIdle)}>Ctrl</SwipeKey>
-          <SwipeKey type="button" onPointerDown={pressAlt} onClick={pressAlt}
+            className={cn(keyBase, "active:bg-emerald-400 active:text-emerald-950", armed.ctrl ? keyActive : keyIdle)}>Ctrl</SwipeKey>
+          <SwipeKey type="button" onClick={pressAlt}
             onSwipeUp={swipeAltUp} onSwipeDown={swipeAltDown} data-testid="key-alt"
-            className={cn(keyBase, "active:bg-emerald-400 active:text-emerald-950", armed === "alt" ? keyActive : keyIdle)}>Alt</SwipeKey>
+            className={cn(keyBase, "active:bg-emerald-400 active:text-emerald-950", armed.alt ? keyActive : keyIdle)}>Alt</SwipeKey>
           <SwipeKey type="button" onClick={pressEsc}
             onSwipeUp={swipeEscUp} onSwipeDown={swipeEscDown} data-testid="key-esc"
             className={cn(keyBase, keyIdle)}>Esc</SwipeKey>
