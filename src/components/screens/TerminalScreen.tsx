@@ -475,17 +475,82 @@ export function TerminalScreen() {
   // funciona. Listeners NATIVOS com passive:false (o React marca touchmove
   // como passive e o preventDefault seria ignorado).
   const touchYRef = useRef<number | null>(null);
+  // ── FASE 2 — long-press para copiar texto (selecao por linha) ──
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const [selMenu, setSelMenu] = useState<{ x: number; y: number } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleCopy = async () => {
+    const sel = termRef.current?.getSelection() ?? "";
+    try {
+      await navigator.clipboard.writeText(sel);
+      setCopied(true);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => { setSelMenu(null); setCopied(false); }, 1400);
+    } catch {
+      // Fallback: execCommand (http/localhost sem permissao de clipboard)
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = sel;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+        setCopied(true);
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => { setSelMenu(null); setCopied(false); }, 1400);
+      } catch { setSelMenu(null); }
+    }
+  };
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     const onTouchStart = (e: TouchEvent) => {
+      // Qualquer toque fecha o menu de selecao (a menos que o toque seja nele)
+      const menuEl = document.querySelector('[data-testid="sel-menu"]');
+      if (menuEl && e.touches[0] && !menuEl.contains(e.target as Node)) setSelMenu(null);
+      longPressFiredRef.current = false;
       const t = termRef.current;
       if (!t) return;
-      const b = t.buffer.active;
-      if (!b || b.baseY <= 0) { touchYRef.current = null; return; }
-      if (e.touches.length === 1) touchYRef.current = e.touches[0].clientY;
+      if (e.touches.length === 1) {
+        touchYRef.current = e.touches[0].clientY;
+        // Long-press: dispara selecao da linha se o dedo nao mover ~550ms
+        touchStartPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = setTimeout(() => {
+          const term = termRef.current;
+          if (!term || !touchStartPosRef.current) return;
+          const screen = host.querySelector<HTMLElement>(".xterm-screen");
+          if (!screen) return;
+          const rect = screen.getBoundingClientRect();
+          if (rect.height <= 0 || term.rows <= 0) return;
+          const row = Math.floor((touchStartPosRef.current.y - rect.top) / (rect.height / term.rows));
+          if (row >= 0 && row < term.rows) {
+            // selectLines usa indice do buffer INTEIRO (0 = inicio do scrollback):
+            // converte a linha visivel somando o baseY.
+            const b = term.buffer.active;
+            const absRow = b ? b.baseY + row : row;
+            longPressFiredRef.current = true;
+            term.selectLines(absRow, absRow);
+            const x = Math.max(8, Math.min(touchStartPosRef.current.x, window.innerWidth - 130));
+            const y = Math.max(8, Math.min(touchStartPosRef.current.y, window.innerHeight - 90));
+            setSelMenu({ x, y });
+            setCopied(false);
+          }
+        }, 550);
+      }
     };
     const onTouchMove = (e: TouchEvent) => {
+      // Movimento >10px = gesto de swipe: cancela o long-press
+      if (touchStartPosRef.current && e.touches.length === 1) {
+        const dx = e.touches[0].clientX - touchStartPosRef.current.x;
+        const dy = e.touches[0].clientY - touchStartPosRef.current.y;
+        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+          if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+        }
+      }
       const t = termRef.current;
       if (!t || touchYRef.current === null) return;
       const b = t.buffer.active;
@@ -499,14 +564,28 @@ export function TerminalScreen() {
         e.preventDefault();
       }
     };
-    const onTouchEnd = () => { touchYRef.current = null; };
+    const onTouchEnd = (e: TouchEvent) => {
+      touchYRef.current = null;
+      touchStartPosRef.current = null;
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      // Long-press disparado: o tap seguinte do xterm (touchend no document)
+      // LIMPARIA a selecao — bloqueia a propagacao para preservar a linha
+      // selecionada e o menu aberto.
+      if (longPressFiredRef.current) {
+        longPressFiredRef.current = false;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
     host.addEventListener("touchstart", onTouchStart, { passive: true });
     host.addEventListener("touchmove", onTouchMove, { passive: false });
-    host.addEventListener("touchend", onTouchEnd);
+    host.addEventListener("touchend", onTouchEnd, { passive: false });
     return () => {
       host.removeEventListener("touchstart", onTouchStart);
       host.removeEventListener("touchmove", onTouchMove);
       host.removeEventListener("touchend", onTouchEnd);
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     };
   }, []);
 
@@ -704,6 +783,19 @@ export function TerminalScreen() {
             className={cn(keyBase, keyIdle)} aria-label="Seta para a direita"><ArrowRight className="h-4 w-4" /></button>
         </div>
       </div>
+
+      {/* ── FASE 2 — menu de copiar por long-press (selecao de linha) ── */}
+      {selMenu && (
+        <div data-testid="sel-menu"
+          className="fixed z-50 rounded-xl border border-emerald-900/50 bg-[#0d1117]/95 px-2 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm"
+          style={{ left: selMenu.x, top: selMenu.y }}>
+          <button type="button" onClick={handleCopy} data-testid="sel-copy"
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-mono text-emerald-300 hover:bg-emerald-500/15">
+            <FileText className="h-3 w-3" />
+            {copied ? "Copiado ✓" : "Copiar linha"}
+          </button>
+        </div>
+      )}
 
       {/* ── Modo leitura: contexto completo da conversa (OpenCode/Claude) ──
           As TUIs sobrescrevem a tela (sem scrollback); este overlay mostra o
