@@ -2,29 +2,59 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-// FIX 20/08 (quedas de conexão do terminal): a conexão WebSocket do PTY vive
-// AQUI, num provider global montado acima do AppShell. Trocar de aba
-// (Chat/N8N/Config) desmonta a tela do Terminal, mas o socket permanece vivo
-// em background — o shell real do servidor continua rodando, e ao voltar a
-// tela reconecta à MESMA sessão sem perder estado. Antes, o WebSocket vivia
-// dentro do TerminalScreen e o unmount fechava a conexão a cada troca de aba.
+// FASE 6 (múltiplas sessões simultâneas): o provider gerencia N sessões pty
+// independentes (abas "Sessão 1/2/..."), cada uma com seu WebSocket, seu
+// session_id de reattach e seu buffer de replay. O TerminalScreen mostra uma
+// aba por vez, mas todas as sessões continuam vivas em background (o backend
+// mantém o bash de cada uma).
+//
+// Herança da FIX 20/08: a conexão WebSocket vive AQUI (provider global acima
+// do AppShell) — trocar de aba do app (Chat/N8N/Config) não mata as sessões.
 
 const SETTINGS_KEY = "hokma.settings.v1";
-const SESSION_KEY = "hokma.terminal.session.v1";
+const TABS_KEY = "hokma.terminal.tabs.v1";
+// Migração: session_id da versão antiga (1 sessão única)
+const LEGACY_SESSION_KEY = "hokma.terminal.session.v1";
 
 export type Conn = "idle" | "connecting" | "live" | "offline";
 
-type TerminalContextValue = {
+export type TerminalTab = {
+  id: string;
+  serverSessionId: string;
   conn: Conn;
   note: string;
-  connect: () => void;
-  ensureConnected: () => void;
-  teardown: () => void;
-  write: (data: string) => void;
-  sendResize: (cols: number, rows: number) => void;
-  subscribeOutput: (fn: (text: string) => void) => () => void;
-  subscribeLive: (fn: () => void) => () => void;
-  getRecentOutput: () => string;
+};
+
+type TabSession = {
+  id: string;
+  serverSessionId: string;
+  wantNew: boolean; // próxima conexão cria sessão NOVA no backend (?new=1)
+  ws: WebSocket | null;
+  conn: Conn;
+  note: string;
+  attached: boolean;
+  intentionalClose: boolean;
+  retryTimer: ReturnType<typeof setTimeout> | null;
+  retryDelay: number;
+  recent: string[];
+  outputListeners: Set<(text: string) => void>;
+  liveListeners: Set<() => void>;
+};
+
+type TerminalContextValue = {
+  tabs: TerminalTab[];
+  activeTabId: string;
+  setActiveTab: (id: string) => void;
+  addTab: () => void;
+  removeTab: (id: string) => void;
+  connect: (tabId: string) => void;
+  ensureConnected: (tabId: string) => void;
+  teardown: (tabId: string) => void;
+  write: (tabId: string, data: string) => void;
+  sendResize: (tabId: string, cols: number, rows: number) => void;
+  subscribeOutput: (tabId: string, fn: (text: string) => void) => () => void;
+  subscribeLive: (tabId: string, fn: () => void) => () => void;
+  getRecentOutput: (tabId: string) => string;
 };
 
 const TerminalContext = createContext<TerminalContextValue | null>(null);
@@ -40,8 +70,35 @@ function readSettings(): { serverUrl: string; token: string } {
   }
 }
 
-function readSavedSessionId(): string {
-  try { return localStorage.getItem(SESSION_KEY) || ""; } catch { return ""; }
+function newTabId(): string {
+  return "tab-" + Math.random().toString(36).slice(2, 10);
+}
+
+// Abas persistidas: [{id, sid}] + activeId. Migração da v1: se não há nada,
+// cria 1 aba com o session_id antigo (reattach à sessão única existente).
+function readTabs(): { tabs: { id: string; sid: string }[]; activeId: string } {
+  try {
+    const raw = localStorage.getItem(TABS_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as { tabs?: { id: string; sid: string }[]; activeId?: string };
+      if (Array.isArray(p.tabs) && p.tabs.length > 0) {
+        const tabs = p.tabs.filter((t) => t && typeof t.id === "string");
+        if (tabs.length > 0) {
+          return { tabs, activeId: p.activeId && tabs.some((t) => t.id === p.activeId) ? p.activeId : tabs[0].id };
+        }
+      }
+    }
+  } catch { /* ignore */ }
+  try {
+    const legacy = localStorage.getItem(LEGACY_SESSION_KEY) || "";
+    return { tabs: [{ id: newTabId(), sid: legacy }], activeId: "" };
+  } catch {
+    return { tabs: [{ id: newTabId(), sid: "" }], activeId: "" };
+  }
+}
+
+function writeTabs(tabs: { id: string; sid: string }[], activeId: string) {
+  try { localStorage.setItem(TABS_KEY, JSON.stringify({ tabs, activeId })); } catch { /* noop */ }
 }
 
 // Buffer contínuo do output do PTY (cap ~200 chunks): permite reescrever na
@@ -50,249 +107,314 @@ const RECENT_MAX_CHUNKS = 200;
 const RECENT_MAX_CHARS = 100_000;
 
 export function TerminalProvider({ children }: { children: ReactNode }) {
-  const wsRef = useRef<WebSocket | null>(null);
-  const intentionalCloseRef = useRef(false);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const retryDelayRef = useRef(400);
-  const listenersRef = useRef<Set<(text: string) => void>>(new Set());
-  const liveListenersRef = useRef<Set<() => void>>(new Set());
-  const recentRef = useRef<string[]>([]);
-  const attachedRef = useRef(false); // true depois do "ready" da sessão atual
-  const [conn, setConn] = useState<Conn>("idle");
-  const [note, setNote] = useState("");
+  const sessionsRef = useRef<Map<string, TabSession>>(new Map());
+  // readTabs() é chamado UMA vez (useRef): a migração v1 gera um id novo por
+  // chamada — chamar duas vezes criava ids divergentes (activeTabId fantasma).
+  const initialTabsRef = useRef(readTabs());
+  const [tabs, setTabs] = useState<TerminalTab[]>(() =>
+    initialTabsRef.current.tabs.map((t) => ({ id: t.id, serverSessionId: t.sid, conn: "idle" as Conn, note: "" })),
+  );
+  const [activeTabId, setActiveTabId] = useState<string>(() =>
+    initialTabsRef.current.activeId || initialTabsRef.current.tabs[0]?.id || "",
+  );
+
+  const getSession = (tabId: string): TabSession => {
+    let s = sessionsRef.current.get(tabId);
+    if (!s) {
+      const saved = tabs.find((t) => t.id === tabId);
+      s = {
+        id: tabId,
+        serverSessionId: saved?.serverSessionId ?? "",
+        wantNew: false,
+        ws: null,
+        conn: "idle",
+        note: "",
+        attached: false,
+        intentionalClose: false,
+        retryTimer: null,
+        retryDelay: 400,
+        recent: [],
+        outputListeners: new Set(),
+        liveListeners: new Set(),
+      };
+      sessionsRef.current.set(tabId, s);
+    }
+    return s;
+  };
+
+  const setTabState = (tabId: string, patch: Partial<Pick<TabSession, "conn" | "note" | "serverSessionId">>) => {
+    const s = sessionsRef.current.get(tabId);
+    if (!s) return;
+    if (patch.conn !== undefined) s.conn = patch.conn;
+    if (patch.note !== undefined) s.note = patch.note;
+    if (patch.serverSessionId !== undefined) s.serverSessionId = patch.serverSessionId;
+    setTabs((prev) => prev.map((t) => (t.id === tabId
+      ? { ...t, conn: s.conn, note: s.note, serverSessionId: s.serverSessionId }
+      : t)));
+  };
 
   // Scrollback enviado pelo servidor no reattach (base64 → UTF-8). É
   // autoritativo — limpa o buffer de replay local e reescreve na tela.
-  const handleScrollback = useCallback((data: unknown) => {
+  const handleScrollback = useCallback((tabId: string, data: unknown) => {
     if (typeof data !== "string") return;
+    const s = sessionsRef.current.get(tabId);
+    if (!s) return;
     try {
       const bin = atob(data);
       const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
       const raw = new TextDecoder("utf-8").decode(bytes);
-      recentRef.current = [];
-      listenersRef.current.forEach((fn) => {
-        try { fn(raw); } catch { /* noop */ }
-      });
+      s.recent = [];
+      s.outputListeners.forEach((fn) => { try { fn(raw); } catch { /* noop */ } });
     } catch { /* ignore */ }
   }, []);
 
-  const scheduleReconnect = useCallback(() => {
-    if (retryTimerRef.current) return;
-    retryTimerRef.current = setTimeout(() => {
-      retryTimerRef.current = null;
-      connectRef.current();
-    }, retryDelayRef.current);
-    retryDelayRef.current = Math.min(retryDelayRef.current * 2, 15_000);
+  const scheduleReconnect = useCallback((tabId: string) => {
+    const s = sessionsRef.current.get(tabId);
+    if (!s) return;
+    if (s.retryTimer) return;
+    s.retryTimer = setTimeout(() => {
+      const s2 = sessionsRef.current.get(tabId);
+      if (!s2) return;
+      s2.retryTimer = null;
+      connectInternal(tabId);
+    }, s.retryDelay);
+    s.retryDelay = Math.min(s.retryDelay * 2, 15_000);
   }, []);
 
-  const connectRef = useRef<() => void>(() => {});
-  connectRef.current = () => {
+  const teardownInternal = (tabId: string) => {
+    const s = sessionsRef.current.get(tabId);
+    if (!s) return;
+    s.intentionalClose = true;
+    if (s.retryTimer) { clearTimeout(s.retryTimer); s.retryTimer = null; }
+    try { s.ws?.close(); } catch { /* noop */ }
+    s.ws = null;
+  };
+
+  const connectInternal = (tabId: string) => {
+    const s = sessionsRef.current.get(tabId);
+    if (!s) return;
     const { serverUrl, token } = readSettings();
-    teardownRef.current();
-    recentRef.current = [];
-    attachedRef.current = false;
+    teardownInternal(tabId);
+    s.recent = [];
+    s.attached = false;
+    s.intentionalClose = false;
     if (!serverUrl) {
-      setConn("offline");
-      setNote("Configure Server URL + HOK_TOKEN nas Configurações.");
+      setTabState(tabId, { conn: "offline", note: "Configure Server URL + HOK_TOKEN nas Configurações." });
       return;
     }
     if (!token) {
-      setConn("offline");
-      setNote("HOK_TOKEN ausente — o terminal exige autenticação.");
+      setTabState(tabId, { conn: "offline", note: "HOK_TOKEN ausente — o terminal exige autenticação." });
       return;
     }
 
-    setConn("connecting");
-    setNote("");
+    setTabState(tabId, { conn: "connecting", note: "" });
     const base = serverUrl.replace(/\/$/, "").replace(/^http/, "ws");
-    const saved = readSavedSessionId();
-    const url = `${base}/terminal/ws?token=${encodeURIComponent(token)}${saved ? `&session_id=${encodeURIComponent(saved)}` : ""}`;
+    const sid = s.serverSessionId;
+    const wantNew = s.wantNew;
+    s.wantNew = false;
+    const url = `${base}/terminal/ws?token=${encodeURIComponent(token)}${sid ? `&session_id=${encodeURIComponent(sid)}` : ""}${wantNew ? "&new=1" : ""}`;
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
     } catch {
-      setConn("offline");
-      setNote("WebSocket indisponível neste ambiente.");
+      setTabState(tabId, { conn: "offline", note: "WebSocket indisponível neste ambiente." });
       return;
     }
-    wsRef.current = ws;
-    intentionalCloseRef.current = false;
+    s.ws = ws;
 
     ws.onopen = () => {
-      // Guard de identidade: eventos de um socket antigo NÃO podem afetar
-      // o estado quando outro socket já assumiu (bug de corrida corrigido).
-      if (wsRef.current !== ws) return;
-      setConn("connecting");
+      if (s.ws !== ws) return;
+      setTabState(tabId, { conn: "connecting" });
     };
 
     ws.onmessage = (ev) => {
-      if (wsRef.current !== ws) return;
+      if (s.ws !== ws) return;
       if (typeof ev.data !== "string") return;
       const text = ev.data as string;
 
-      // Fase de attach: o backend envia mensagens de controle (session_id,
-      // scrollback, ready) ANTES do stream ao vivo. Após "ready", tudo é
-      // texto cru do terminal.
-      if (!attachedRef.current) {
+      if (!s.attached) {
         let ctrl: Record<string, unknown> | null = null;
         try { ctrl = JSON.parse(text) as Record<string, unknown>; } catch { ctrl = null; }
         if (ctrl && typeof ctrl === "object" && typeof ctrl.type === "string") {
           if (ctrl.type === "session") {
-            const sid = typeof ctrl.session_id === "string" ? ctrl.session_id : "";
+            const newSid = typeof ctrl.session_id === "string" ? ctrl.session_id : "";
             const created = ctrl.created === true;
-            const prevSid = readSavedSessionId();
-            // Diagnóstico de queda: distingue reattach (created=false, MESMA
-            // sessão, processo preservado) de sessão nova (created=true).
-            console.log(`[term] sessão sid=${sid} created=${created} prevSid=${prevSid} reattach=${!created}`);
-            if (sid) {
-              try { localStorage.setItem(SESSION_KEY, sid); } catch { /* noop */ }
+            console.log(`[term] tab=${tabId} sessão sid=${newSid} created=${created} reattach=${!created}`);
+            if (newSid) {
+              s.serverSessionId = newSid;
+              setTabState(tabId, { serverSessionId: newSid });
+              const all = [...sessionsRef.current.values()];
+                      writeTabs(all.map((x) => ({ id: x.id, sid: x.serverSessionId })), activeTabId);
             }
-            setConn("live");
-            setNote("");
+            setTabState(tabId, { conn: "live", note: "" });
             if (created) {
-              // sessão nova: banner + aviso sutil se havia uma anterior expirada
-              if (prevSid && prevSid !== sid) {
-                setNote("Sessão anterior expirada — nova sessão iniciada.");
-              }
-              liveListenersRef.current.forEach((fn) => { try { fn(); } catch { /* noop */ } });
+              s.liveListeners.forEach((fn) => { try { fn(); } catch { /* noop */ } });
             }
             return;
           }
           if (ctrl.type === "scrollback") {
-            handleScrollback(ctrl.data);
+            handleScrollback(tabId, ctrl.data);
             return;
           }
           if (ctrl.type === "ready") {
-            attachedRef.current = true;
-            setConn("live");
-            setNote("");
+            s.attached = true;
+            setTabState(tabId, { conn: "live", note: "" });
             return;
           }
           if (ctrl.type === "session_error") {
-            setConn("offline");
-            setNote("Falha ao iniciar a sessão do terminal.");
+            setTabState(tabId, { conn: "offline", note: "Falha ao iniciar a sessão do terminal." });
             return;
           }
         }
       }
 
       // stream ao vivo (texto cru do pty)
-      recentRef.current.push(text);
-      if (recentRef.current.length > RECENT_MAX_CHUNKS) recentRef.current.shift();
+      s.recent.push(text);
+      if (s.recent.length > RECENT_MAX_CHUNKS) s.recent.shift();
       let total = 0;
-      for (const c of recentRef.current) total += c.length;
-      while (total > RECENT_MAX_CHARS && recentRef.current.length > 1) {
-        recentRef.current.shift();
+      for (const c of s.recent) total += c.length;
+      while (total > RECENT_MAX_CHARS && s.recent.length > 1) {
+        s.recent.shift();
         total = 0;
-        for (const c of recentRef.current) total += c.length;
+        for (const c of s.recent) total += c.length;
       }
-      listenersRef.current.forEach((fn) => {
-        try { fn(text); } catch { /* noop */ }
-      });
+      s.outputListeners.forEach((fn) => { try { fn(text); } catch { /* noop */ } });
     };
 
     ws.onclose = (ev) => {
-      if (wsRef.current === ws) wsRef.current = null;
-      // Guard de identidade + ignora fechamento intencional (teardown).
-      if (wsRef.current !== ws && wsRef.current !== null) return;
-      // Diagnóstico de queda: registra close code/reason + session_id salvo
-      // (para saber se a próxima conexão faz reattach ou sessão nova).
-      console.log(`[term] ws close code=${ev?.code ?? "?"} reason=${JSON.stringify(ev?.reason ?? "")} wasClean=${ev?.wasClean ?? "?"} session_id=${readSavedSessionId()}`);
-      if (intentionalCloseRef.current) return;
-      attachedRef.current = false;
-      setConn("offline");
-      if (!document.hidden) scheduleReconnect();
+      if (s.ws === ws) s.ws = null;
+      if (s.intentionalClose) return;
+      console.log(`[term] tab=${tabId} ws close code=${ev?.code ?? "?"} reason=${JSON.stringify(ev?.reason ?? "")} session_id=${s.serverSessionId}`);
+      s.attached = false;
+      setTabState(tabId, { conn: "offline" });
+      if (!document.hidden) scheduleReconnect(tabId);
     };
 
     ws.onerror = () => {
-      if (wsRef.current !== ws) return;
-      setConn("offline");
-      setNote("Falha na conexão com o servidor.");
+      if (s.ws !== ws) return;
+      setTabState(tabId, { conn: "offline", note: "Falha na conexão com o servidor." });
     };
   };
 
-  const teardownRef = useRef<() => void>(() => {});
-  teardownRef.current = () => {
-    intentionalCloseRef.current = true;
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-    try { wsRef.current?.close(); } catch { /* noop */ }
-    wsRef.current = null;
-  };
+  const connect = useCallback((tabId: string) => {
+    getSession(tabId);
+    connectInternal(tabId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs]);
 
-  const connect = useCallback(() => connectRef.current(), []);
-
-  // FIX 20/08 (regressão de sessão): ao voltar da aba Terminal, a tela NÃO
-  // pode chamar connect() (que faz teardown e derruba o socket vivo — o
-  // backend então mata o bash e a sessão reseta). ensureConnected só abre
-  // conexão se não houver socket OPEN/CONNECTING; com socket vivo, mantém a
-  // MESMA sessão (shell real continua rodando).
-  const ensureConnected = useCallback(() => {
-    const ws = wsRef.current;
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+  const ensureConnected = useCallback((tabId: string) => {
+    const s = sessionsRef.current.get(tabId);
+    if (s?.ws && (s.ws.readyState === WebSocket.OPEN || s.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
-    connectRef.current();
+    connectInternal(tabId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs]);
+
+  const teardown = useCallback((tabId: string) => {
+    teardownInternal(tabId);
+    setTabState(tabId, { conn: "idle" });
   }, []);
 
-  const teardown = useCallback(() => teardownRef.current(), []);
-
-  const write = useCallback((data: string) => {
-    const ws = wsRef.current;
+  const write = useCallback((tabId: string, data: string) => {
+    const s = sessionsRef.current.get(tabId);
+    const ws = s?.ws;
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "input", data }));
     }
   }, []);
 
-  const sendResize = useCallback((cols: number, rows: number) => {
-    const ws = wsRef.current;
+  const sendResize = useCallback((tabId: string, cols: number, rows: number) => {
+    const s = sessionsRef.current.get(tabId);
+    const ws = s?.ws;
     if (ws?.readyState === WebSocket.OPEN && cols > 0 && rows > 0) {
       ws.send(JSON.stringify({ type: "resize", cols, rows }));
     }
   }, []);
 
-  const subscribeOutput = useCallback((fn: (text: string) => void) => {
-    listenersRef.current.add(fn);
-    return () => { listenersRef.current.delete(fn); };
+  const subscribeOutput = useCallback((tabId: string, fn: (text: string) => void) => {
+    const s = sessionsRef.current.get(tabId) ?? getSession(tabId);
+    s.outputListeners.add(fn);
+    return () => { s.outputListeners.delete(fn); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs]);
+
+  const subscribeLive = useCallback((tabId: string, fn: () => void) => {
+    const s = sessionsRef.current.get(tabId) ?? getSession(tabId);
+    s.liveListeners.add(fn);
+    return () => { s.liveListeners.delete(fn); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs]);
+
+  const getRecentOutput = useCallback((tabId: string) => {
+    const s = sessionsRef.current.get(tabId);
+    return s ? s.recent.join("") : "";
   }, []);
 
-  const subscribeLive = useCallback((fn: () => void) => {
-    liveListenersRef.current.add(fn);
-    return () => { liveListenersRef.current.delete(fn); };
+  const setActiveTab = useCallback((id: string) => {
+    setActiveTabId(id);
+    const all = [...sessionsRef.current.values()];
+    if (all.length) writeTabs(all.map((x) => ({ id: x.id, sid: x.serverSessionId })), id);
   }, []);
 
-  const getRecentOutput = useCallback(() => recentRef.current.join(""), []);
+  const addTab = useCallback(() => {
+    const id = newTabId();
+    getSession(id);
+    sessionsRef.current.get(id)!.wantNew = true;
+    setTabs((prev) => [...prev, { id, serverSessionId: "", conn: "idle", note: "" }]);
+    setActiveTabId(id);
+    connectInternal(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs]);
+
+  const removeTab = useCallback((tabId: string) => {
+    teardownInternal(tabId);
+    sessionsRef.current.delete(tabId);
+    setTabs((prev) => {
+      const next = prev.filter((t) => t.id !== tabId);
+      return next;
+    });
+    setActiveTabId((cur) => {
+      if (cur !== tabId) return cur;
+      const remaining = tabs.filter((t) => t.id !== tabId);
+      return remaining[0]?.id ?? "";
+    });
+    const all = [...sessionsRef.current.values()];
+    writeTabs(all.map((x) => ({ id: x.id, sid: x.serverSessionId })), activeTabId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs, activeTabId]);
 
   // Reconecta imediatamente ao voltar a aba/janela para primeiro plano
   // (suspensão do Android/Chrome mata o socket em background).
   useEffect(() => {
     const onVis = () => {
-      if (!document.hidden) {
-        const ws = wsRef.current;
-        if (ws?.readyState !== WebSocket.OPEN && !intentionalCloseRef.current) {
-          connectRef.current();
+      if (document.hidden) return;
+      sessionsRef.current.forEach((s) => {
+        if (s.ws?.readyState !== WebSocket.OPEN && !s.intentionalClose) {
+          connectInternal(s.id);
         }
-      }
+      });
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
   // Mudança de settings (Server URL / HOK_TOKEN) em outra aba/janela →
-  // reconecta com os valores novos. Vive aqui (provider) para funcionar
-  // mesmo com a tela do Terminal desmontada.
+  // reconecta todas as sessões com os valores novos.
   useEffect(() => {
     const handler = (e: StorageEvent) => {
-      if (e.key === SETTINGS_KEY) connectRef.current();
+      if (e.key === SETTINGS_KEY) {
+        sessionsRef.current.forEach((s) => connectInternal(s.id));
+      }
     };
     window.addEventListener("storage", handler);
     return () => window.removeEventListener("storage", handler);
   }, []);
 
   const value: TerminalContextValue = {
-    conn, note, connect, ensureConnected, teardown, write, sendResize, subscribeOutput, subscribeLive, getRecentOutput,
+    tabs, activeTabId, setActiveTab, addTab, removeTab,
+    connect, ensureConnected, teardown, write, sendResize,
+    subscribeOutput, subscribeLive, getRecentOutput,
   };
 
   return <TerminalContext.Provider value={value}>{children}</TerminalContext.Provider>;
