@@ -54,10 +54,21 @@ function snapshotTerminalLines(term: Terminal): string[] {
   return [];
 }
 
-const QUICK = [
+const QUICK_DEFAULT = [
   "pwd", "ls -la", "whoami", "uptime",
   "df -h /sdcard", "free -h", "uname -r",
 ];
+// ── FASE 5 — comandos rapidos customizaveis (persistidos em localStorage) ──
+const QUICK_KEY = "hokma.terminal.quick.v1";
+function readQuickCmds(): string[] {
+  try {
+    const raw = localStorage.getItem(QUICK_KEY);
+    if (!raw) return [...QUICK_DEFAULT];
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr)) return [...QUICK_DEFAULT];
+    return arr.filter((x): x is string => typeof x === "string" && x.trim() !== "").slice(0, 24);
+  } catch { return [...QUICK_DEFAULT]; }
+}
 
 type ArmedMod = "none" | "ctrl" | "alt";
 
@@ -207,6 +218,30 @@ export function TerminalScreen() {
   }, [sendResize]);
 
   const writeToShell = (data: string) => write(data);
+
+  // ── FASE 5 — edicao dos comandos rapidos ──
+  const [quickCmds, setQuickCmds] = useState<string[]>(readQuickCmds);
+  const [editingQuick, setEditingQuick] = useState(false);
+  const [newQuick, setNewQuick] = useState("");
+  useEffect(() => {
+    try { localStorage.setItem(QUICK_KEY, JSON.stringify(quickCmds)); } catch { /* noop */ }
+  }, [quickCmds]);
+  const addQuick = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cmd = newQuick.trim();
+    if (!cmd) return;
+    setQuickCmds((c) => [...c, cmd]);
+    setNewQuick("");
+  };
+  const removeQuick = (i: number) => setQuickCmds((c) => c.filter((_, idx) => idx !== i));
+  const moveQuick = (i: number, dir: -1 | 1) => setQuickCmds((c) => {
+    const j = i + dir;
+    if (j < 0 || j >= c.length) return c;
+    const n = [...c];
+    [n[i], n[j]] = [n[j], n[i]];
+    return n;
+  });
+  const resetQuick = () => setQuickCmds([...QUICK_DEFAULT]);
 
   // ── Modificadores sticky (Ctrl/Alt) para teclado touch ──
   // Sempre refoca a textarea do xterm após tocar a barra: o toque num botão
@@ -803,13 +838,51 @@ export function TerminalScreen() {
         <div className="border-b border-red-900/40 bg-red-500/5 px-3 py-1.5 text-[11px] text-red-300">{note}</div>
       )}
 
-      <div className="flex flex-wrap gap-1 border-b border-emerald-900/40 px-3 py-2">
-        {QUICK.map((q) => (
-          <button key={q} onClick={() => writeToShell(q + "\r")}
-            className="rounded-md border border-emerald-900/50 bg-emerald-500/5 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/10">
-            {q.length > 18 ? q.slice(0, 16) + "…" : q}
+      <div className="border-b border-emerald-900/40 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-1">
+          {quickCmds.map((q) => (
+            <button key={q} onClick={() => writeToShell(q + "\r")}
+              className="rounded-md border border-emerald-900/50 bg-emerald-500/5 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/10">
+              {q.length > 18 ? q.slice(0, 16) + "…" : q}
+            </button>
+          ))}
+          <button type="button" onClick={() => setEditingQuick((v) => !v)} data-testid="quick-edit"
+            className={cn("rounded-md border px-2 py-1 text-[11px]",
+              editingQuick ? "border-emerald-300 bg-emerald-400 text-emerald-950" : "border-emerald-900/50 bg-emerald-500/5 text-emerald-300 hover:bg-emerald-500/10")}>
+            {editingQuick ? "✕ Fechar" : "✎ Editar"}
           </button>
-        ))}
+        </div>
+
+        {editingQuick && (
+          <div className="mt-2 space-y-1.5" data-testid="quick-editor">
+            {quickCmds.map((q, i) => (
+              <div key={q + "-" + i} className="flex items-center gap-1.5">
+                <span className="min-w-0 flex-1 truncate rounded-md border border-emerald-900/40 bg-emerald-500/5 px-2 py-1 font-mono text-[11px] text-emerald-300">{q}</span>
+                <button type="button" onClick={() => moveQuick(i, -1)} data-testid={`quick-up-${i}`}
+                  className="rounded border border-emerald-900/50 px-1.5 py-0.5 text-[10px] text-emerald-300 hover:bg-emerald-500/10">↑</button>
+                <button type="button" onClick={() => moveQuick(i, 1)} data-testid={`quick-down-${i}`}
+                  className="rounded border border-emerald-900/50 px-1.5 py-0.5 text-[10px] text-emerald-300 hover:bg-emerald-500/10">↓</button>
+                <button type="button" onClick={() => removeQuick(i)} data-testid={`quick-del-${i}`}
+                  className="rounded border border-red-900/50 px-1.5 py-0.5 text-[10px] text-red-300 hover:bg-red-500/10">✕</button>
+              </div>
+            ))}
+            <form onSubmit={addQuick} className="flex gap-1.5">
+              <input
+                value={newQuick}
+                onChange={(e) => setNewQuick(e.target.value)}
+                placeholder="comando (ex: git status)"
+                data-testid="quick-new-input"
+                className="min-w-0 flex-1 rounded-md border border-emerald-900/40 bg-[#0d1117] px-2 py-1 font-mono text-[11px] text-emerald-300 outline-none focus:border-emerald-500/60"
+              />
+              <button type="submit" data-testid="quick-add"
+                className="rounded-md border border-emerald-900/50 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/20">+ Adicionar</button>
+            </form>
+            <button type="button" onClick={resetQuick} data-testid="quick-reset"
+              className="rounded-md border border-emerald-900/50 px-2 py-1 text-[10px] text-emerald-300/70 hover:bg-emerald-500/10">
+              ↺ Restaurar padrão
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="relative min-h-0 flex-1">
