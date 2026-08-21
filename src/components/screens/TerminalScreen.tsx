@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw, FileText, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "lucide-react";
+import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw, FileText, Loader2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -99,6 +99,7 @@ export function TerminalScreen() {
   // TUI ativa (OpenCode/Claude Code detectado via smcup/rmcup interceptado):
   // ativa o "modo adaptativo" — com teclado aberto, o terminal encolhe para a
   // área visível acima do teclado (diálogo/input sempre à vista).
+  const everLiveRef = useRef(false);
   const tuiActiveRef = useRef(false);
   const tuiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tuiActive, setTuiActive] = useState(false);
@@ -352,6 +353,7 @@ export function TerminalScreen() {
     // Quando a conexão abre de verdade (socket novo), avisa na tela e
     // reenvia o resize (o tamanho do terminal pode ter mudado).
     const onLive = () => {
+      everLiveRef.current = true;
       const t = termRef.current;
       if (t) {
         t.writeln("\r\n\x1b[32m● sessão PTY real iniciada\x1b[0m (Ctrl+D sai)");
@@ -508,8 +510,13 @@ export function TerminalScreen() {
     };
   }, []);
 
+  // FASE 1 — status de conexao explicito: LIVE (verde) / Reconectando ou
+  // Conectando (ambar, com spinner) / Desconectado (vermelho).
   const statusColor = conn === "live" ? "#22c55e" : conn === "connecting" ? "#f59e0b" : "#ef4444";
-  const statusLabel = conn === "live" ? "LIVE" : conn === "connecting" ? "CONECTANDO…" : "OFFLINE";
+  const statusLabel = conn === "live" ? "LIVE"
+    : conn === "connecting"
+      ? (everLiveRef.current ? "Reconectando…" : "Conectando…")
+      : "Desconectado";
 
   // A barra é uma accessory view do teclado (como no Termius): existe enquanto
   // o teclado virtual está aberto (kbInset > 0), independente de estado de foco
@@ -598,7 +605,9 @@ export function TerminalScreen() {
             : <WifiOff className="h-3.5 w-3.5 text-red-400" />}
           <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5"
             style={{ background: `${statusColor}20`, color: statusColor }}>
-            <Circle className="h-2 w-2" style={{ fill: statusColor }} />
+            {conn === "connecting"
+              ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              : <Circle className="h-2 w-2" style={{ fill: statusColor }} />}
             {statusLabel}
           </span>
           <button onClick={() => { showLogRef.current = true; setShowLog(true); }} title="Ver contexto completo (modo leitura)"
