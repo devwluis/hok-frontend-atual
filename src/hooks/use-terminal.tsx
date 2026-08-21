@@ -221,6 +221,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       return;
     }
     s.ws = ws;
+    // FIX 21/08: o stream do PTY chega em frames BINÁRIOS (o servidor usa
+    // BinaryMessage, pois output de terminal pode ter bytes não-UTF-8).
+    // binaryType=arraybuffer garante ev.data como ArrayBuffer, não Blob.
+    ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {
       if (s.ws !== ws) return;
@@ -229,8 +233,18 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
 
     ws.onmessage = (ev) => {
       if (s.ws !== ws) return;
-      if (typeof ev.data !== "string") return;
-      const text = ev.data as string;
+      // Frame de controle/session vem como TEXT (JSON). O stream ao vivo do
+      // pty vem como BINARY: decodifica com TextDecoder (bytes inválidos de
+      // UTF-8 viram U+FFFD, que o xterm.js renderiza sem quebrar — e o
+      // browser NÃO fecha a conexão com 1002 como faria num frame text).
+      let text: string;
+      if (typeof ev.data === "string") {
+        text = ev.data;
+      } else if (ev.data instanceof ArrayBuffer) {
+        text = new TextDecoder("utf-8").decode(new Uint8Array(ev.data));
+      } else {
+        return;
+      }
 
       if (!s.attached) {
         let ctrl: Record<string, unknown> | null = null;
