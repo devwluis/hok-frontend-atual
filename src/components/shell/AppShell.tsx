@@ -8,6 +8,7 @@ import { Drawer } from "./Drawer";
 import { SettingsModal } from "./SettingsModal";
 import { ChatScreen } from "@/components/screens/ChatScreen";
 import { TerminalScreen } from "@/components/screens/TerminalScreen";
+import { TerminalTTYDScreen } from "@/components/screens/TerminalTTYDScreen";
 import { N8NScreen } from "@/components/screens/N8NScreen";
 import { BrainScreen } from "@/components/screens/BrainScreen";
 import { ModelsScreen } from "@/components/screens/ModelsScreen";
@@ -26,7 +27,9 @@ import { CRMScreen } from "@/components/screens/CRMScreen";
 
 const SCREENS: Record<string, { render: () => ReactNode }> = {
   chat: { render: () => <ChatScreen /> },
-  terminal: { render: () => <TerminalScreen /> },
+  // 22/08: tela "terminal" agora usa o ttyd real (iframe); o xterm in-app
+  // permanece disponível em código para rollback imediato.
+  terminal: { render: () => <TerminalTTYDScreen /> },
   n8n: { render: () => <N8NScreen /> },
   brain: { render: () => <BrainScreen /> },
   models: { render: () => <ModelsScreen /> },
