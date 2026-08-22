@@ -406,8 +406,11 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
         const y = pendingRestoreRef.current;
         pendingRestoreRef.current = null;
         try { t.scrollToLine(Math.min(y, t.buffer.active.baseY)); } catch { /* noop */ }
-      } else if (atBottomRef.current) {
-        // ROLAGEM MANUAL: só auto-rola quando o usuário está no fundo
+      } else if (atBottomRef.current && !tuiActiveRef.current) {
+        // ROLAGEM MANUAL: só auto-rola quando o usuário está no fundo E fora
+        // de TUI — durante TUI (opencode/vim) quem controla a viewport é a
+        // própria TUI via posicionamento absoluto; forçar fundo aqui é a
+        // suspeita principal da oscilação "sobe e desce".
         t.scrollToBottom();
       }
       // Modo leitura: stream bruto só fora de TUI (shell usa \n)
@@ -489,12 +492,12 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
         if (firstResizeRef.current) {
           firstResizeRef.current = false;
           const t = termRef.current;
-          if (t && atBottomRef.current) t.scrollToBottom();
+          if (t && atBottomRef.current && !tuiActiveRef.current) t.scrollToBottom();
           return; // sem SIGWINCH no 1º mount: preserva o scrollback do reattach
         }
         scheduleResizeSend();
         const t = termRef.current;
-        if (t && atBottomRef.current) t.scrollToBottom();
+        if (t && atBottomRef.current && !tuiActiveRef.current) t.scrollToBottom();
       } catch { /* noop */ }
     };
     const ro = new ResizeObserver(onResize);

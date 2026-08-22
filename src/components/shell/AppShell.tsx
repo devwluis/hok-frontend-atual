@@ -27,9 +27,11 @@ import { CRMScreen } from "@/components/screens/CRMScreen";
 
 const SCREENS: Record<string, { render: () => ReactNode }> = {
   chat: { render: () => <ChatScreen /> },
-  // 22/08: tela "terminal" agora usa o ttyd real (iframe); o xterm in-app
-  // permanece disponível em código para rollback imediato.
-  terminal: { render: () => <TerminalTTYDScreen /> },
+  // ETAPA 2 (Caminho B): volta ao xterm in-app — persistência via tmux
+  // (7d6ee03) + flapping corrigido (21732d5) + gate TUI tmux-aware (76b70cf).
+  // ttyd permanece como fallback (hok-terminal.service ativo; remapear para
+  // TerminalTTYDScreen reverte instantaneamente).
+  terminal: { render: () => <TerminalScreen /> },
   n8n: { render: () => <N8NScreen /> },
   brain: { render: () => <BrainScreen /> },
   models: { render: () => <ModelsScreen /> },
