@@ -309,7 +309,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       console.log(`[term] tab=${tabId} ws close code=${ev?.code ?? "?"} reason=${JSON.stringify(ev?.reason ?? "")} session_id=${s.serverSessionId}`);
       s.attached = false;
       setTabState(tabId, { conn: "offline" });
-      if (!document.hidden) scheduleReconnect(tabId);
+      // FIX 22/08 (tarefa 3 — estabilização): reconectar SEMPRE com backoff,
+      // inclusive com a aba oculta. Antes só reconectava quando o usuário
+      // voltava (visibilitychange), deixando o terminal morto em fundo.
+      // setTimeout roda throttled em background mas ainda dispara; ao voltar
+      // para primeiro plano o visibilitychange dispara conexão imediata.
+      scheduleReconnect(tabId);
     };
 
     ws.onerror = () => {

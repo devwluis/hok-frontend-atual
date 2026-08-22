@@ -987,11 +987,13 @@ export function TerminalScreen() {
   }, []);
 
   // FASE 1 — status de conexao explicito da ABA ATIVA
-  const statusColor = conn === "live" ? "#22c55e" : conn === "connecting" ? "#f59e0b" : "#ef4444";
+  const statusColor = conn === "live" ? "#22c55e" : conn === "connecting" || everLiveRef.current ? "#f59e0b" : "#ef4444";
+  // FIX 22/08 (tarefa 3): com queda não-intencional o backoff automático está
+  // sempre agendado — mostrar "Reconectando…" em vez de "Desconectado".
   const statusLabel = conn === "live" ? "LIVE"
     : conn === "connecting"
       ? (everLiveRef.current ? "Reconectando…" : "Conectando…")
-      : "Desconectado";
+      : (everLiveRef.current ? "Reconectando…" : "Desconectado");
   const showKeysBar = kbInset > 0;
   const adaptiveHeight = tuiActive && kbInset > 0 ? vvHeight : null;
 
