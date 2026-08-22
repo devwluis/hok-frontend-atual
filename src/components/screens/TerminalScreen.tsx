@@ -358,13 +358,18 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
     // Restaura o estado visual ao montar (mesma lógica da v1, por aba)
     const liveOnMount = conn === "live";
     if (liveOnMount) {
-      const saved = readTerminalState(stateKey);
-      if (saved && saved.history.length > 0) {
-        term.write(saved.history.join("\r\n") + "\r\n");
-      }
-      const recent = termApi.getRecentOutput(tabId);
+      // FIX 22/08 (bug duplicação): UMA fonte só. recent é o stream bruto fiel
+      // (com ANSI) e cobre o mesmo período do history — escrever AMBOS
+      // empilhava cópias idênticas a cada troca de tela. history vira fallback
+      // apenas quando não há replay bruto disponível.
+      const recent = termApi.takeRecentOutput(tabId);
       if (recent) {
         term.write(recent);
+      } else {
+        const saved = readTerminalState(stateKey);
+        if (saved && saved.history.length > 0) {
+          term.write(saved.history.join("\r\n") + "\r\n");
+        }
       }
       if (pendingRestoreRef.current !== null) {
         const y = pendingRestoreRef.current;
@@ -415,6 +420,16 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
       }
     };
     const unsub = termApi.subscribeOutput(tabId, onOutput);
+
+    // FIX 22/08 (bug duplicação): o scrollback do servidor é autoritativo e
+    // contém TUDO desde o início da sessão — antes de reaplicá-lo, limpa o
+    // buffer do xterm (e o log do modo leitura). Sem isso cada reconexão
+    // empilhava mais uma cópia completa do histórico na tela.
+    const unsubReset = termApi.subscribeReset(tabId, () => {
+      logRef.current = "";
+      lastSnapRef.current = "";
+      try { termRef.current?.reset(); } catch { /* noop */ }
+    });
 
     // Quando a conexão abre de verdade (socket novo), avisa na tela
     const onLive = () => {
@@ -491,6 +506,7 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
       clearInterval(snapTimer);
       if (tuiTimerRef.current) clearTimeout(tuiTimerRef.current);
       unsub();
+      unsubReset();
       unsubLive();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       const t = termRef.current;

@@ -38,6 +38,7 @@ type TabSession = {
   retryDelay: number;
   recent: string[];
   outputListeners: Set<(text: string) => void>;
+  resetListeners: Set<() => void>;
   liveListeners: Set<() => void>;
 };
 
@@ -53,8 +54,9 @@ type TerminalContextValue = {
   write: (tabId: string, data: string) => void;
   sendResize: (tabId: string, cols: number, rows: number) => void;
   subscribeOutput: (tabId: string, fn: (text: string) => void) => () => void;
+  subscribeReset: (tabId: string, fn: () => void) => () => void;
   subscribeLive: (tabId: string, fn: () => void) => () => void;
-  getRecentOutput: (tabId: string) => string;
+  takeRecentOutput: (tabId: string) => string;
 };
 
 const TerminalContext = createContext<TerminalContextValue | null>(null);
@@ -135,6 +137,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         retryDelay: 400,
         recent: [],
         outputListeners: new Set(),
+        resetListeners: new Set(),
         liveListeners: new Set(),
       };
       sessionsRef.current.set(tabId, s);
@@ -154,7 +157,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   };
 
   // Scrollback enviado pelo servidor no reattach (base64 → UTF-8). É
-  // autoritativo — limpa o buffer de replay local e reescreve na tela.
+  // autoritativo — limpa o buffer de replay local e REESCREVE a tela do zero.
   const handleScrollback = useCallback((tabId: string, data: unknown) => {
     if (typeof data !== "string") return;
     const s = sessionsRef.current.get(tabId);
@@ -164,6 +167,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
       const raw = new TextDecoder("utf-8").decode(bytes);
       s.recent = [];
+      // FIX 22/08 (bug duplicação): o scrollback contém TUDO desde o início da
+      // sessão. Reaplicá-lo com append sobre o xterm existente empilhava uma
+      // cópia completa do histórico a cada reconexão (3 blocos idênticos no
+      // vídeo). O replay só é autoritativo se a tela for LIMPA antes.
+      s.resetListeners.forEach((fn) => { try { fn(); } catch { /* noop */ } });
       s.outputListeners.forEach((fn) => { try { fn(raw); } catch { /* noop */ } });
     } catch { /* ignore */ }
   }, []);
@@ -353,6 +361,13 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs]);
 
+  const subscribeReset = useCallback((tabId: string, fn: () => void) => {
+    const s = sessionsRef.current.get(tabId) ?? getSession(tabId);
+    s.resetListeners.add(fn);
+    return () => { s.resetListeners.delete(fn); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs]);
+
   const subscribeLive = useCallback((tabId: string, fn: () => void) => {
     const s = sessionsRef.current.get(tabId) ?? getSession(tabId);
     s.liveListeners.add(fn);
@@ -360,9 +375,15 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs]);
 
-  const getRecentOutput = useCallback((tabId: string) => {
+  // Consumo DESTRUTIVO: devolve os chunks acumulados e limpa o buffer. O
+  // consumidor (remount do TerminalTabBody) é único por aba — sem isso, cada
+  // remount reescrevia as MESMAS chunks acumulando cópias na tela.
+  const takeRecentOutput = useCallback((tabId: string) => {
     const s = sessionsRef.current.get(tabId);
-    return s ? s.recent.join("") : "";
+    if (!s) return "";
+    const out = s.recent.join("");
+    s.recent = [];
+    return out;
   }, []);
 
   const setActiveTab = useCallback((id: string) => {
@@ -428,7 +449,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const value: TerminalContextValue = {
     tabs, activeTabId, setActiveTab, addTab, removeTab,
     connect, ensureConnected, teardown, write, sendResize,
-    subscribeOutput, subscribeLive, getRecentOutput,
+    subscribeOutput, subscribeReset, subscribeLive, takeRecentOutput,
   };
 
   return <TerminalContext.Provider value={value}>{children}</TerminalContext.Provider>;
