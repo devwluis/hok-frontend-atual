@@ -198,9 +198,18 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     s.ws = null;
   };
 
-  const connectInternal = (tabId: string) => {
+  const connectInternal = (tabId: string, opts?: { force?: boolean }) => {
     const s = sessionsRef.current.get(tabId);
     if (!s) return;
+    // FIX wsflap (22/08): guard ÚNICO de idempotência. Gatilhos concorrentes
+    // (visibilitychange + timer de backoff) fechavam o socket em progresso e
+    // reabriam outro, gerando o flapping conecta/desconecta no mesmo segundo.
+    // Se já existe conexão viva/em progresso, gatilho redundante é ignorado.
+    // Apenas credenciais alteradas (storage) forçam reabertura.
+    if (!opts?.force && !s.intentionalClose && s.ws &&
+        (s.ws.readyState === WebSocket.OPEN || s.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
     const { serverUrl, token } = readSettings();
     teardownInternal(tabId);
     s.recent = [];
@@ -280,6 +289,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
           }
           if (ctrl.type === "ready") {
             s.attached = true;
+            // FIX wsflap: sucesso cancela qualquer backoff pendente e reseta
+            // o delay — um timer antigo não pode derrubar conexão saudável.
+            if (s.retryTimer) { clearTimeout(s.retryTimer); s.retryTimer = null; }
+            s.retryDelay = 400;
             setTabState(tabId, { conn: "live", note: "" });
             return;
           }
@@ -444,7 +457,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handler = (e: StorageEvent) => {
       if (e.key === SETTINGS_KEY) {
-        sessionsRef.current.forEach((s) => connectInternal(s.id));
+        sessionsRef.current.forEach((s) => connectInternal(s.id, { force: true }));
       }
     };
     window.addEventListener("storage", handler);
