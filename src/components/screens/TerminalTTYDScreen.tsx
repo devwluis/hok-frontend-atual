@@ -63,6 +63,11 @@ const SYM_CHARS = ["|", "\\", "?", "-", ":", ";", "!", "~", "@", "$", "*", "^", 
 
 const KEYS_BAR_H = 46; // altura da barra de teclas (px) — reserva do iframe
 
+// FIX kbicon (23/08): folga para o ícone minimizado pousar ACIMA do Dock
+// (bottom-4 + altura ~90px do Dock + respiro). Garante a pilha visual:
+// conteúdo → ícone do teclado → navegação HOK OS → teclado do sistema.
+const DOCK_CLEAR_PX = 116;
+
 export function TerminalTTYDScreen() {
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -75,6 +80,12 @@ export function TerminalTTYDScreen() {
   // mobile abre — usamos window.visualViewport (área REALMENTE visível) para
   // reposicionar a barra colada no topo do teclado, subindo/descendo junto.
   const [kbInset, setKbInset] = useState(0);
+  // FIX kbicon (23/08): teclado aberto detectado por encolhimento do VV em
+  // relação à altura inicial — cobre também navegadores com resizes-content,
+  // onde innerHeight encolhe junto e o inset cruza para ~0 (ícone e Dock
+  // acabavam na mesma linha, Dock z-100 por cima do ícone z-40).
+  const [kbOpen, setKbOpen] = useState(false);
+  const vvH0 = useRef<number | null>(null);
 
   // TESTE minimizável estilo Termius: ícone compacto ↔ barra completa.
   // Preferência persistida; espelhada em ref para o listener do VV decidir
@@ -113,7 +124,11 @@ export function TerminalTTYDScreen() {
         0,
         Math.round(window.innerHeight - vv.height - (vv.offsetTop || 0)),
       );
+      if (vvH0.current === null) vvH0.current = vv.height;
+      const open = vv.height < vvH0.current - 120;
+      if (!open) vvH0.current = vv.height; // recalibra (rotação, chrome do browser)
       setKbInset(inset);
+      setKbOpen(open);
       // FIX kbhide refinado: o Dock se oculta apenas com a barra de teclas
       // EXPANDIDA e teclado aberto na tela Terminal. No estado minimizado há
       // espaço livre suficiente para ambos coexistirem.
@@ -307,9 +322,15 @@ export function TerminalTTYDScreen() {
         )}
       </div>
       {/* TESTE 1 v2 — barra de teclas MINIMIZÁVEL estilo Termius:
-          ícone compacto ↔ barra completa; ancorada ao teclado via kbInset */}
+          ícone compacto ↔ barra completa; ancorada ao teclado via kbInset.
+          FIX kbicon: com teclado aberto, o ícone pousa acima do Dock
+          (max(kbInset, DOCK_CLEAR_PX)) e z-[110] > Dock z-[100] — nunca
+          escondido atrás da navegação nem na mesma linha sobreposta. */}
       {!keysExpanded ? (
-        <div className="fixed left-0 right-0 z-40 flex justify-end px-2" style={{ bottom: kbInset }}>
+        <div
+          className="fixed left-0 right-0 z-[110] flex justify-end px-2 transition-[bottom] duration-150"
+          style={{ bottom: kbOpen ? Math.max(kbInset, DOCK_CLEAR_PX) : kbInset }}
+        >
           <button type="button" data-testid="ov-toggle"
             onClick={toggleKeysBar}
             title="Abrir teclado especial"
