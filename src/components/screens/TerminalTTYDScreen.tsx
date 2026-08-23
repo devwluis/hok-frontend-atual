@@ -645,6 +645,20 @@ export function TerminalTTYDScreen() {
 
   const sbThumbH = 48;
 
+  // FIX follow (23/08): na transição do teclado (kbShift muda → altura do
+  // iframe muda), o xterm pode refazer o fit com contagem errada e o rodapé
+  // (faixa verde) renderiza sob a barra — texto cortado/sobreposto. Refit
+  // forçado + volta ao vivo (copy-mode cancel via rota scroll) garantem que
+  // o terminal acompanhe até a faixa verde com o output legível.
+  const prevShiftRef = useRef(0);
+  useEffect(() => {
+    if (kbShift === prevShiftRef.current) return;
+    const opened = kbShift > 0;
+    prevShiftRef.current = kbShift;
+    scheduleFitNudge();
+    if (opened) void sbApi("bottom");
+  }, [kbShift, scheduleFitNudge, sbApi]);
+
   // TESTE B — zoom persistido (escala visual do iframe; 1 = 100%)
   const [fontScale, setFontScale] = useState(readFontScale);
   const applyFontScale = useCallback((next: number) => {
