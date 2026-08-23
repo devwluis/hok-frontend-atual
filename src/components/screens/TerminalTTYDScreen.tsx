@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Palette } from "lucide-react";
+import { Palette, Keyboard } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { appStore } from "@/lib/app-state";
 import { TERMINAL_THEMES } from "./SettingsScreen";
 
 const RENEW_MARGIN_S = 60;
@@ -73,6 +75,33 @@ export function TerminalTTYDScreen() {
   // mobile abre — usamos window.visualViewport (área REALMENTE visível) para
   // reposicionar a barra colada no topo do teclado, subindo/descendo junto.
   const [kbInset, setKbInset] = useState(0);
+
+  // TESTE minimizável estilo Termius: ícone compacto ↔ barra completa.
+  // Preferência persistida; espelhada em ref para o listener do VV decidir
+  // se publica keyboardOpen ao Dock (só esconde Dock com barra EXPANDIDA).
+  const [keysExpanded, setKeysExpanded] = useState(() => {
+    try {
+      return localStorage.getItem("hokma.terminal.keysbar.v1") === "expanded";
+    } catch {
+      return false;
+    }
+  });
+  const keysExpandedRef = useRef(keysExpanded);
+  useEffect(() => {
+    keysExpandedRef.current = keysExpanded;
+  }, [keysExpanded]);
+  const toggleKeysBar = useCallback(() => {
+    setKeysExpanded((v) => {
+      const nv = !v;
+      try {
+        localStorage.setItem("hokma.terminal.keysbar.v1", nv ? "expanded" : "min");
+      } catch {
+        /* noop */
+      }
+      return nv;
+    });
+  }, []);
+  const [extraGroup, setExtraGroup] = useState(false);
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) {
@@ -85,6 +114,19 @@ export function TerminalTTYDScreen() {
         Math.round(window.innerHeight - vv.height - (vv.offsetTop || 0)),
       );
       setKbInset(inset);
+      // FIX kbhide refinado: o Dock se oculta apenas com a barra de teclas
+      // EXPANDIDA e teclado aberto na tela Terminal. No estado minimizado há
+      // espaço livre suficiente para ambos coexistirem.
+      try {
+        const st = appStore.get();
+        if (st.screen === "terminal") {
+          appStore.set({ keyboardOpen: inset > 24 && keysExpandedRef.current });
+        } else if (inset === 0) {
+          appStore.set({ keyboardOpen: false });
+        }
+      } catch {
+        /* noop */
+      }
     };
     vv.addEventListener("resize", onVV);
     vv.addEventListener("scroll", onVV);
@@ -92,6 +134,11 @@ export function TerminalTTYDScreen() {
     return () => {
       vv.removeEventListener("resize", onVV);
       vv.removeEventListener("scroll", onVV);
+      try {
+        appStore.set({ keyboardOpen: false });
+      } catch {
+        /* noop */
+      }
     };
   }, []);
 
@@ -259,23 +306,46 @@ export function TerminalTTYDScreen() {
           <div className="p-3 text-[11px] text-emerald-300/70">Carregando terminal…</div>
         )}
       </div>
-      {/* Barra de teclas ANCORADA AO TECLADO: fixed com bottom = kbInset
-          (visualViewport) — sobe/desce junto com o teclado do sistema. */}
+      {/* TESTE 1 v2 — barra de teclas MINIMIZÁVEL estilo Termius:
+          ícone compacto ↔ barra completa; ancorada ao teclado via kbInset */}
+      {!keysExpanded ? (
+        <div className="fixed left-0 right-0 z-40 flex justify-end px-2" style={{ bottom: kbInset }}>
+          <button type="button" data-testid="ov-toggle"
+            onClick={toggleKeysBar}
+            title="Abrir teclado especial"
+            className="flex h-10 w-10 select-none items-center justify-center rounded-xl border border-emerald-900/60 bg-[#0b1626]/95 text-emerald-300 shadow-lg active:bg-emerald-400 active:text-emerald-950">
+            <Keyboard className="h-5 w-5" />
+          </button>
+        </div>
+      ) : (
       <div
         data-testid="ov-bar"
-        className="fixed left-0 right-0 z-40 border-t border-emerald-900/40 bg-[#0b1626] px-1 py-1"
+        className="fixed left-0 right-0 z-40 bg-[#0b1626] px-1 py-1"
         style={{ bottom: kbInset }}
       >
+        {/* grupo extra "..." — F-keys + símbolos */}
+        <div data-testid="ov-extra-group" className={"thin-scroll mb-1 flex w-max items-center gap-1 overflow-x-auto " + (extraGroup ? "" : "hidden")} style={{ WebkitOverflowScrolling: "touch" }}>
+          {FN_KEYS.map((xk) => (
+            <button key={xk.label} type="button" data-testid={`ov-fn-${xk.label}`} onClick={() => pressXKey(xk)}
+              className="flex h-9 min-w-[34px] shrink-0 select-none items-center justify-center rounded-lg border border-sky-800/50 bg-sky-500/5 px-1.5 text-[10px] font-mono text-sky-300 active:bg-sky-400 active:text-emerald-950">
+              {xk.label}
+            </button>
+          ))}
+          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
+          {SYM_CHARS.map((s, i) => (
+            <button key={`sym-${i}`} type="button" data-testid={`ov-sym-${i}`}
+              onClick={() => void sendToKeys({ text: s })}
+              className="flex h-9 min-w-[32px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[13px] text-emerald-200 active:bg-emerald-400 active:text-emerald-950">
+              {s}
+            </button>
+          ))}
+        </div>
         <div className="thin-scroll flex w-max items-center gap-1 overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
-          <button type="button" data-testid="ov-ctrl"
-            onClick={() => toggleSticky("ctrl")}
-            className={`flex h-9 min-w-[44px] shrink-0 select-none items-center justify-center rounded-lg border px-2 text-[10px] font-mono ${sticky.ctrl ? "border-emerald-300 bg-emerald-400 font-bold text-emerald-950 ring-2 ring-emerald-300/80" : "border-amber-700/50 bg-amber-500/5 text-amber-300 active:bg-amber-400 active:text-emerald-950"}`}>
-            Ctrl
-          </button>
-          <button type="button" data-testid="ov-alt"
-            onClick={() => toggleSticky("alt")}
-            className={`flex h-9 min-w-[44px] shrink-0 select-none items-center justify-center rounded-lg border px-2 text-[10px] font-mono ${sticky.alt ? "border-emerald-300 bg-emerald-400 font-bold text-emerald-950 ring-2 ring-emerald-300/80" : "border-amber-700/50 bg-amber-500/5 text-amber-300 active:bg-amber-400 active:text-emerald-950"}`}>
-            Alt
+          <button type="button" data-testid="ov-collapse"
+            onClick={toggleKeysBar}
+            title="Recolher teclado especial"
+            className="flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-lg border border-emerald-300/60 bg-emerald-400/10 text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
+            <Keyboard className="h-4 w-4" />
           </button>
           <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
           {NAV_KEYS.map((xk) => (
@@ -293,28 +363,25 @@ export function TerminalTTYDScreen() {
           ))}
           <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
           {COMBO_KEYS.map((xk) => (
-            <button key={xk.label} type="button" data-testid={`ov-combo-${xk.tid}`} onClick={() => pressXKey(xk)}
+            <button key={xk.tid ?? xk.label} type="button" data-testid={`ov-combo-${xk.tid}`} onClick={() => pressXKey(xk)}
               className="flex h-9 min-w-[36px] shrink-0 select-none items-center justify-center rounded-lg border border-red-800/50 bg-red-500/5 px-2 text-[10px] font-mono text-red-300 active:bg-red-400 active:text-emerald-950">
               {xk.label}
             </button>
           ))}
           <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
-          {FN_KEYS.map((xk) => (
-            <button key={xk.label} type="button" data-testid={`ov-fn-${xk.label}`} onClick={() => pressXKey(xk)}
-              className="flex h-9 min-w-[34px] shrink-0 select-none items-center justify-center rounded-lg border border-sky-800/50 bg-sky-500/5 px-1.5 text-[10px] font-mono text-sky-300 active:bg-sky-400 active:text-emerald-950">
-              {xk.label}
-            </button>
-          ))}
-          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
-          {SYM_CHARS.map((s, i) => (
-            <button key={`sym-${i}`} type="button" data-testid={`ov-sym-${i}`}
-              onClick={() => void sendToKeys({ text: s })}
-              className="flex h-9 min-w-[32px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[13px] text-emerald-200 active:bg-emerald-400 active:text-emerald-950">
-              {s}
-            </button>
-          ))}
+          {/* "..." alterna o grupo extra (F-keys + símbolos) */}
+          <button type="button" data-testid="ov-more"
+            onClick={() => setExtraGroup((v) => !v)}
+            title="Mais teclas (F1-F12 e símbolos)"
+            className={cn(
+              "flex h-9 min-w-[44px] shrink-0 select-none items-center justify-center rounded-lg border px-2 text-[14px] font-bold tracking-widest",
+              extraGroup ? "border-emerald-300 bg-emerald-400/20 text-emerald-200" : "border-emerald-900/50 bg-emerald-500/5 text-emerald-300",
+            )}>
+            ····
+          </button>
         </div>
       </div>
+      )}
     </div>
   );
 }
