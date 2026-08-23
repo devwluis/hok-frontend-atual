@@ -127,6 +127,24 @@ export function TerminalTTYDScreen() {
   const committedRef = useRef(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [recovering, setRecovering] = useState(false);
+  // FIX refit (23/08): o FitAddon do xterm (dentro do iframe cross-origin)
+  // mede as células ANTES da fonte terminal carregar → conta linhas demais →
+  // o rodapé do TUI (caixa de digitação + faixa verde do tmux) fica clipado
+  // abaixo do visível ("caixa de digitação quase cortada"). Oscilar 2px na
+  // reserva dispara window.resize interno do iframe → refit correto.
+  const [fitNudgePx, setFitNudgePx] = useState(0);
+  const nudgeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const scheduleFitNudge = useCallback(() => {
+    nudgeTimersRef.current.forEach(clearTimeout);
+    nudgeTimersRef.current = [350, 1500].map((delay) =>
+      setTimeout(() => {
+        setFitNudgePx(2);
+        nudgeTimersRef.current.push(
+          setTimeout(() => setFitNudgePx(0), 90),
+        );
+      }, delay),
+    );
+  }, []);
   const attemptsRef = useRef(0);
   const recoverTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const hiddenAtRef = useRef<number | null>(null);
@@ -160,6 +178,9 @@ export function TerminalTTYDScreen() {
     });
   }, []);
   const [extraGroup, setExtraGroup] = useState(false);
+  useEffect(() => () => {
+    nudgeTimersRef.current.forEach(clearTimeout);
+  }, []);
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) {
@@ -510,7 +531,7 @@ export function TerminalTTYDScreen() {
       </div>
       <div
         className="relative min-h-0 flex-1 overflow-hidden bg-black"
-        style={{ paddingBottom: keysReservePx(keysExpanded, extraGroup) }}
+        style={{ paddingBottom: keysReservePx(keysExpanded, extraGroup) - fitNudgePx }}
       >
         {recovering && (
           <div
@@ -533,6 +554,7 @@ export function TerminalTTYDScreen() {
             onLoad={() => {
               setRecovering(false);
               attemptsRef.current = 0;
+              scheduleFitNudge();
             }}
             style={{
               transform: `scale(${fontScale})`,
