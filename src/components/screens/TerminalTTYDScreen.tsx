@@ -482,9 +482,9 @@ export function TerminalTTYDScreen() {
   // sincronizados pelo mesmo índice de paleta.
   const PALETTES: Record<string, Record<string, string>> = {
     "HOK Dark": {
-      bg: "#0d0d0d", panel: "#151515", panelRaised: "#20201e", ink: "#f4efe5",
+      bg: "#0d0d0d", panel: "#151515", panelRaised: "#20201e", ink: "#f5f5f5",
       muted: "#9a9388", line: "#34302a", accent: "#F59E0B", accentSoft: "#68430a",
-      terminal: "#0d0d0d", terminalInk: "#f4efe5", terminalMuted: "#82796c",
+      terminal: "#0d0d0d", terminalInk: "#f5f5f5", terminalMuted: "#82796c",
       terminalLine: "#2a261f", tmux: "#83c889", key: "#20201e",
     },
     "Termius-like": {

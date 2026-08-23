@@ -24,14 +24,17 @@ export const TERMINAL_THEMES: Record<string, { name: string; colors: string[]; t
   // diferenciação funcional (git diff vermelho/verde continuam claros).
   dark: {
     name: "HOK Dark",
-    colors: ["#0d0d0d", "#F59E0B", "#F59E0B", "#f87171"],
+    colors: ["#0d0d0d", "#f5f5f5", "#F59E0B", "#f87171"],
     theme: {
-      background: "#0d0d0d", foreground: "#F59E0B", cursor: "#F59E0B", cursorAccent: "#0d0d0d",
+      // Estilo opencode: texto padrão BRANCO, destaques (status/valores/
+      // termos) na família LARANJA #F59E0B. ANSI funcionais preservados
+      // (diff vermelho/verde, dirs azuis) para legibilidade.
+      background: "#0d0d0d", foreground: "#f5f5f5", cursor: "#F59E0B", cursorAccent: "#0d0d0d",
       selectionBackground: "#F59E0B33",
-      black: "#0d0d0d", red: "#f87171", green: "#4ade80", yellow: "#fbbf24",
+      black: "#0d0d0d", red: "#f87171", green: "#4ade80", yellow: "#F59E0B",
       blue: "#60a5fa", magenta: "#c084fc", cyan: "#22d3ee", white: "#e5e7eb",
-      brightBlack: "#78716c", brightRed: "#fca5a5", brightGreen: "#86efac", brightYellow: "#fcd34d",
-      brightBlue: "#93c5fd", brightMagenta: "#d8b4fe", brightCyan: "#67e8f9", brightWhite: "#fffbeb",
+      brightBlack: "#8a8378", brightRed: "#fca5a5", brightGreen: "#86efac", brightYellow: "#fbbf24",
+      brightBlue: "#93c5fd", brightMagenta: "#d8b4fe", brightCyan: "#67e8f9", brightWhite: "#ffffff",
     },
   },
   termius: {
