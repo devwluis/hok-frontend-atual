@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Palette, Keyboard, Plus, Minus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { SHELL_Z, aboveDock } from "@/lib/shell-layers";
+import { SHELL_Z, aboveDock, keysReservePx } from "@/lib/shell-layers";
 import { TERMINAL_THEMES } from "./SettingsScreen";
 
 const RENEW_MARGIN_S = 60;
@@ -71,7 +71,7 @@ const FN_KEYS: XKey[] = [
 ];
 const SYM_CHARS = ["|", "\\", "?", "-", ":", ";", "!", "~", "@", "$", "*", "^", "%", "=", "`", "<", ">", "(", ")", "{", "}", "[", "]"];
 
-const KEYS_BAR_H = 46; // altura da barra de teclas (px) — reserva do iframe
+// (reserva vertical do iframe centralizada em shell-layers.ts → keysReservePx)
 
 // FIX kbicon (23/08): folga para o ícone minimizado pousar ACIMA do Dock —
 // valores centralizados em src/lib/shell-layers.ts (fonte única de camadas).
@@ -430,7 +430,7 @@ export function TerminalTTYDScreen() {
       </div>
       <div
         className="relative min-h-0 flex-1 overflow-hidden bg-black"
-        style={{ paddingBottom: KEYS_BAR_H }}
+        style={{ paddingBottom: keysReservePx(keysExpanded, extraGroup) }}
       >
         {err ? (
           <div className="p-3 text-[11px] text-red-300">⚠️ {err}</div>

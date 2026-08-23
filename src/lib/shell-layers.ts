@@ -46,3 +46,16 @@ export const DOCK_CLEAR_PX = DOCK_BOTTOM_PX + DOCK_HEIGHT_PX + 10;
 //   teclado aberto  → sobe junto, colado no topo do teclado.
 export const aboveDock = (kbInset: number): number =>
   Math.max(kbInset, DOCK_CLEAR_PX);
+
+// ── Reserva vertical do conteúdo do terminal (paddingBottom do iframe) ──
+// A faixa de status do tmux vive DENTRO do iframe cross-origin — não pode
+// ser reposicionada pelo pai. O equivalente estrutural é reservar espaço:
+// com o paddingBottom abaixo, a borda inferior do iframe (última linha =
+// status bar verde) fica sempre ACIMA da zona do Dock.
+//   teclado minimizado: folga do Dock + altura do ícone (40px + respiro)
+//   barra expandida:    folga do Dock + altura real da(s) linha(s) da barra
+//                       → painel do opencode 100% visível acima da barra
+export const KEYS_ICON_BAND_PX = 44;
+export const KEYS_BAR_ROW_PX = 48;
+export const keysReservePx = (expanded: boolean, extraGroup: boolean): number =>
+  DOCK_CLEAR_PX + (expanded ? (extraGroup ? KEYS_BAR_ROW_PX * 2 : KEYS_BAR_ROW_PX) : KEYS_ICON_BAND_PX);
