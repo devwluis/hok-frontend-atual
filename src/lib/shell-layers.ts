@@ -61,8 +61,14 @@ export const KEYS_BAR_ROW_PX = 48;
 // opencode/Claude Code (última linha do TUI) nunca fique sob a barra,
 // absorvendo diferenças de altura entre dispositivos/fontes.
 export const KEYS_SAFETY_PX = 20;
+// COMPACTAÇÃO do modo maximizado: o TUI do opencode ancora a caixa de
+// digitação no RODAPÉ do painel tmux — com resposta curta, as linhas mortas
+// do meio viram um vão entre a resposta e a caixa. Reduzindo as linhas do
+// painel (mais reserva = menos rows), o TUI compacta e a caixa de digitação
+// sobe para perto da última resposta. Ajustável: ~15.7px por linha.
+export const MAXIMIZED_COMPACTION_PX = 130;
 export const keysReservePx = (expanded: boolean, extraGroup: boolean): number =>
   DOCK_CLEAR_PX +
   (expanded
-    ? (extraGroup ? KEYS_BAR_ROW_PX * 2 : KEYS_BAR_ROW_PX) + KEYS_SAFETY_PX
+    ? (extraGroup ? KEYS_BAR_ROW_PX * 2 : KEYS_BAR_ROW_PX) + KEYS_SAFETY_PX + MAXIMIZED_COMPACTION_PX
     : KEYS_ICON_BAND_PX);
