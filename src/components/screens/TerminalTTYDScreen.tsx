@@ -145,9 +145,6 @@ export function TerminalTTYDScreen() {
       /* noop */
     }
   }, []);
-  // Encolhimento do iframe com teclado aberto: alinha o rodapé do TUI logo
-  // acima da barra de teclas (barra ocupa kbInset..kbInset+48 do rodapé).
-  const kbShift = Math.max(0, kbInset - 128);
   const nudgeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const scheduleFitNudge = useCallback(() => {
     nudgeTimersRef.current.forEach(clearTimeout);
@@ -171,6 +168,9 @@ export function TerminalTTYDScreen() {
   // mobile abre — usamos window.visualViewport (área REALMENTE visível) para
   // reposicionar a barra colada no topo do teclado, subindo/descendo junto.
   const [kbInset, setKbInset] = useState(0);
+  // Encolhimento do iframe com teclado aberto: alinha o rodapé do TUI logo
+  // acima da barra de teclas (barra ocupa kbInset..kbInset+48 do rodapé).
+  const kbShift = Math.max(0, kbInset - 128);
 
   // TESTE minimizável estilo Termius: ícone compacto ↔ barra completa.
   // Preferência persistida.
