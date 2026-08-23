@@ -17,6 +17,9 @@
 export const SHELL_Z = {
   /** Conteúdo do terminal: header, faixa de abas, iframe ttyd */
   terminalContent: 30,
+  /** Header do redesign (PARTE 3): logo HOK OS + zoom + paleta + minimizar.
+   *  In-flow no topo da coluna; registrado p/ contrato e eventuais overlays. */
+  terminalHeader: 35,
   /** Faixa de abas das sessões (acima do conteúdo, abaixo do teclado) */
   terminalTabs: 40,
   /** Barra de rolagem do scrollback (overlay fino à direita) */
@@ -31,6 +34,20 @@ export const SHELL_Z = {
   /** Chip "reconectando…" e indicadores transitórios do terminal */
   terminalRecovery: 130,
 } as const;
+
+// ── Mapeamento do redesign (PARTE 1, 23/08) ─────────────────────────────
+// O mockup (hok-terminal-redesign) usa escala solta 10–60:
+//   terminalContent 10 · terminalTabs 20 · dock 30 · keysBarMinimized 40 ·
+//   keysBarExpanded 50 · recoveryOverlay 60
+// ESCALA DO MOCKUP REJEITADA. Correspondência adotada (produção):
+//   mockup terminalContent 10 → terminalContent 30
+//   mockup terminalTabs   20 → terminalTabs 40 (+ terminalHeader 35, novo)
+//   mockup dock           30 → dock 100
+//   mockup keysBarMinimized 40 → keysBarMinimized 110
+//   mockup keysBarExpanded  50 → keysBarExpanded 120
+//   mockup recoveryOverlay  60 → terminalRecovery 130
+//   (sem análogo no mockup)    → terminalScrollbar 45
+// Qualquer camada nova do redesign entra AQUI, na escala de produção.
 
 // Geometria do Dock (Dock.tsx consome os mesmos valores):
 // bottom-4 = 16px; altura = botão 64px + py-3 (24px) + border 2px = 90px.
