@@ -57,13 +57,10 @@ export const aboveDock = (kbInset: number): number =>
 //                       → painel do opencode 100% visível acima da barra
 export const KEYS_ICON_BAND_PX = 44;
 export const KEYS_BAR_ROW_PX = 48;
-// Folga extra SÓ no estado expandido: garante que a caixa de digitação do
-// opencode/Claude Code (última linha do TUI) nunca fique sob a barra,
-// absorvendo diferenças de altura entre dispositivos/fontes.
-// NOTA: NÃO adicionar reserva "de compactação" aqui — vão morto fora do TUI
-// é tão ruim quanto dentro. O rodapé clipado foi corrigido no componente via
-// refit do xterm (oscilação pós-load), não via reserva.
-export const KEYS_SAFETY_PX = 20;
+// FIX alinhamento (23/08, pedido do usuário): faixa verde do tmux QUASE
+// encostada na barra de teclas — buffer mínimo (4px) só contra clip de
+// arredondamento entre dispositivos. Era 20px (vão visível).
+export const KEYS_SAFETY_PX = 4;
 export const keysReservePx = (expanded: boolean, extraGroup: boolean): number =>
   DOCK_CLEAR_PX +
   (expanded
@@ -74,8 +71,8 @@ export const keysReservePx = (expanded: boolean, extraGroup: boolean): number =>
 // quantidade (não translada!) → xterm refaz o fit → TUI redistribui com o
 // scrollback intacto no topo e a caixa de digitação pousando logo acima da
 // barra. Derivado das constantes acima (zero número mágico no componente):
-// o rodapé do iframe deve pousar em kbInset + barra + respiro.
-const BAR_TOP_GAP_PX = 8;
+// o rodapé do iframe deve pousar em kbInset + barra + respiro mínimo.
+const BAR_TOP_GAP_PX = 2;
 export const keyboardShiftPx = (kbInset: number): number => {
   if (kbInset <= 0) return 0;
   const reserve = keysReservePx(true, false); // estado expandido é o caso do teclado
