@@ -57,5 +57,12 @@ export const aboveDock = (kbInset: number): number =>
 //                       → painel do opencode 100% visível acima da barra
 export const KEYS_ICON_BAND_PX = 44;
 export const KEYS_BAR_ROW_PX = 48;
+// Folga extra SÓ no estado expandido: garante que a caixa de digitação do
+// opencode/Claude Code (última linha do TUI) nunca fique sob a barra,
+// absorvendo diferenças de altura entre dispositivos/fontes.
+export const KEYS_SAFETY_PX = 20;
 export const keysReservePx = (expanded: boolean, extraGroup: boolean): number =>
-  DOCK_CLEAR_PX + (expanded ? (extraGroup ? KEYS_BAR_ROW_PX * 2 : KEYS_BAR_ROW_PX) : KEYS_ICON_BAND_PX);
+  DOCK_CLEAR_PX +
+  (expanded
+    ? (extraGroup ? KEYS_BAR_ROW_PX * 2 : KEYS_BAR_ROW_PX) + KEYS_SAFETY_PX
+    : KEYS_ICON_BAND_PX);
