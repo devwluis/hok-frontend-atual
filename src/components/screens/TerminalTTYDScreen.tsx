@@ -1,9 +1,9 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx } from "@/lib/shell-layers";
-import { TERMINAL_THEMES } from "./SettingsScreen";
+import { TERMINAL_THEMES, readTerminalTheme } from "./SettingsScreen";
 
 const RENEW_MARGIN_S = 60;
 const RETRY_ERR_MS = 10_000;
@@ -412,8 +412,55 @@ export function TerminalTTYDScreen() {
 
   // TESTE 2 — ciclo de temas aplicado À SESSÃO ttyd viva (OSC 10/11/4)
   const themeKeys = Object.keys(TERMINAL_THEMES);
-  const [themeIdx, setThemeIdx] = useState(0);
-  const themeName = themeKeys[themeIdx % themeKeys.length] ?? "HOK Dark";
+  const [themeIdx, setThemeIdx] = useState(() =>
+    Math.max(0, themeKeys.indexOf(readTerminalTheme())),
+  );
+  // PARTE 3 — paletas da CASCA (hex exatos do mockup redesign) como CSS
+  // variables; o xterm continua colorido via OSC (TERMINAL_THEMES), os dois
+  // sincronizados pelo mesmo índice de paleta.
+  const PALETTES: Record<string, Record<string, string>> = {
+    "HOK Dark": {
+      bg: "#0d0d0d", panel: "#151515", panelRaised: "#20201e", ink: "#f4efe5",
+      muted: "#9a9388", line: "#34302a", accent: "#F59E0B", accentSoft: "#68430a",
+      terminal: "#0d0d0d", terminalInk: "#f4efe5", terminalMuted: "#82796c",
+      terminalLine: "#2a261f", tmux: "#83c889", key: "#20201e",
+    },
+    "Termius-like": {
+      bg: "#011627", panel: "#0a2233", panelRaised: "#12344a", ink: "#e8f1f2",
+      muted: "#8ca6ad", line: "#294b5c", accent: "#7fdbca", accentSoft: "#245b65",
+      terminal: "#01111f", terminalInk: "#d6e7e9", terminalMuted: "#6f929d",
+      terminalLine: "#17384a", tmux: "#9fe3b1", key: "#12344a",
+    },
+    "High Contrast": {
+      bg: "#121313", panel: "#1d1f1e", panelRaised: "#2a2d2a", ink: "#fbf9ed",
+      muted: "#b7bbad", line: "#4c534b", accent: "#f2c46d", accentSoft: "#67502c",
+      terminal: "#080b0a", terminalInk: "#f5f7dd", terminalMuted: "#a5b39d",
+      terminalLine: "#445047", tmux: "#b9ee8e", key: "#2a2d2a",
+    },
+  };
+  const PALETTE_LABELS: Record<string, string> = {
+    dark: "HOK Dark",
+    termius: "Termius-like",
+    highcontrast: "High Contrast",
+  };
+  const themeName = PALETTE_LABELS[themeKeys[themeIdx % themeKeys.length] ?? "dark"] ?? "HOK Dark";
+  const palette = PALETTES[themeName] ?? PALETTES["HOK Dark"];
+  const themeStyle = {
+    "--hok-bg": palette.bg,
+    "--hok-panel": palette.panel,
+    "--hok-raised": palette.panelRaised,
+    "--hok-ink": palette.ink,
+    "--hok-muted": palette.muted,
+    "--hok-line": palette.line,
+    "--hok-accent": palette.accent,
+    "--hok-accent-soft": palette.accentSoft,
+    "--hok-terminal": palette.terminal,
+    "--hok-terminal-ink": palette.terminalInk,
+    "--hok-terminal-muted": palette.terminalMuted,
+    "--hok-terminal-line": palette.terminalLine,
+    "--hok-tmux": palette.tmux,
+    "--hok-key": palette.key,
+  } as CSSProperties;
 
   const hexToOsc = (h: string): string => {
     const s = h.replace("#", "").toLowerCase();
@@ -569,35 +616,60 @@ export function TerminalTTYDScreen() {
   }, []);
 
   return (
-    <div data-term-ui className="flex h-full w-full flex-col bg-[#011627] font-mono text-emerald-400">
-      <div className="flex items-center justify-between border-b border-emerald-900/40 px-3 py-2 text-[11px]">
-        <span className="text-emerald-300/80">HOK Server · terminal (ttyd)</span>
-        <div className="flex items-center gap-2">
-          <span className={err ? "text-red-300" : url ? "text-emerald-300" : "text-amber-300"}>
-            {err ? "ERRO" : url ? "LIVE" : "Conectando…"}
-          </span>
-          {/* TESTE B — zoom (fontSize ±) via escala visual do iframe */}
-          <button onClick={() => applyFontScale(fontScale - 0.1)}
-            title={`Zoom − (${Math.round(fontScale * 100)}%)`}
-            data-testid="term-zoom-out"
-            className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
-            <Minus className="h-3 w-3" />
-          </button>
-          <span className="min-w-[34px] text-center text-[10px] text-emerald-400/70" data-testid="term-zoom-level">
-            {Math.round(fontScale * 100)}%
-          </span>
-          <button onClick={() => applyFontScale(fontScale + 0.1)}
-            title={`Zoom + (${Math.round(fontScale * 100)}%)`}
-            data-testid="term-zoom-in"
-            className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
-            <Plus className="h-3 w-3" />
-          </button>
-          {/* TESTE 2 — ciclo de temas aplicado À SESSÃO ttyd viva (OSC) */}
+    <div data-term-ui className="flex h-full w-full flex-col bg-[#011627] font-mono text-emerald-400" style={themeStyle}>
+      {/* PARTE 3 — header do redesign: logo + badge, zoom c/ reset, paleta */}
+      <div
+        data-testid="term-header"
+        className="flex h-[54px] shrink-0 items-center justify-between border-b px-3"
+        style={{ borderColor: "var(--hok-line)", background: "var(--hok-panel)", zIndex: SHELL_Z.terminalHeader }}
+      >
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: "var(--hok-accent)", color: "var(--hok-bg)" }}>
+            <Command size={16} strokeWidth={2.2} />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[12px] font-bold tracking-[0.14em]" style={{ color: "var(--hok-ink)" }}>HOK OS</span>
+              <span className="hidden rounded-full border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.1em] sm:inline" style={{ color: "var(--hok-accent)", borderColor: "var(--hok-accent-soft)" }}>Hokmá ecosystem</span>
+            </div>
+            <p className="mt-0.5 flex items-center gap-1.5 truncate text-[9px]" style={{ color: "var(--hok-muted)" }}>
+              <span className={err ? "text-red-400" : url ? "text-emerald-400" : "text-amber-400"}>● {err ? "ERRO" : url ? "LIVE" : "conectando…"}</span>
+              <span className="truncate">· {tabs.ids.length} sess{tabs.ids.length > 1 ? "ões" : "ão"}</span>
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex items-center gap-0.5 rounded-md border p-0.5" style={{ borderColor: "var(--hok-line)", background: "var(--hok-bg)" }}>
+            <button onClick={() => applyFontScale(fontScale - 0.1)}
+              title={`Zoom − (${Math.round(fontScale * 100)}%)`}
+              data-testid="term-zoom-out"
+              className="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-white/10"
+              style={{ color: "var(--hok-ink)" }}>
+              <Minus className="h-3 w-3" />
+            </button>
+            <button onClick={() => applyFontScale(1)}
+              title="Resetar zoom para 100%"
+              data-testid="term-zoom-level"
+              className="w-9 text-center font-mono text-[10px] transition-colors hover:text-[var(--hok-accent)]"
+              style={{ color: "var(--hok-muted)" }}>
+              {Math.round(fontScale * 100)}%
+            </button>
+            <button onClick={() => applyFontScale(fontScale + 0.1)}
+              title={`Zoom + (${Math.round(fontScale * 100)}%)`}
+              data-testid="term-zoom-in"
+              className="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-white/10"
+              style={{ color: "var(--hok-ink)" }}>
+              <Plus className="h-3 w-3" />
+            </button>
+          </div>
+          {/* TESTE 2/PARTE 3 — ciclo de paletas: CSS vars da casca + OSC na sessão viva */}
           <button onClick={cycleTheme}
-            title={`Tema: ${themeName} (clique para trocar)`}
+            title={`Paleta: ${themeName} (clique para trocar)`}
             data-testid="term-theme"
-            className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
-            <Palette className="h-3 w-3" />
+            className="flex h-8 items-center gap-1.5 rounded-md border px-2 transition-colors hover:bg-white/10"
+            style={{ borderColor: "var(--hok-line)", color: "var(--hok-ink)" }}>
+            <Palette className="h-3.5 w-3.5" style={{ color: "var(--hok-accent)" }} />
+            <span className="hidden text-[10px] font-semibold sm:inline">{themeName}</span>
           </button>
         </div>
       </div>
