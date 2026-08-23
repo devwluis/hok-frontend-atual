@@ -2,6 +2,7 @@
 import { motion } from "framer-motion";
 import { useAppState } from "@/hooks/use-app-state";
 import { cn } from "@/lib/utils";
+import { SHELL_Z, DOCK_BOTTOM_PX } from "@/lib/shell-layers";
 
 const ICON_SRCS = {
   chat: "/icons/hok-chat.png?v=2",
@@ -26,10 +27,12 @@ export function Dock() {
 
   return (
     <div
+      data-testid="dock-root"
       className={cn(
-        "pointer-events-none fixed left-1/2 z-[100] -translate-x-1/2 transition-all duration-200",
-        oculto ? "bottom-[-96px] opacity-0" : "bottom-4 opacity-100",
+        "pointer-events-none fixed left-1/2 -translate-x-1/2 transition-all duration-200",
+        oculto ? "opacity-0" : "opacity-100",
       )}
+      style={{ zIndex: SHELL_Z.dock, bottom: oculto ? DOCK_BOTTOM_PX - 96 : DOCK_BOTTOM_PX }}
     >
       <motion.div
         initial={{ y: 80, opacity: 0 }}

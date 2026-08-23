@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Palette, Keyboard, Plus, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { appStore } from "@/lib/app-state";
+import { SHELL_Z, DOCK_CLEAR_PX } from "@/lib/shell-layers";
 import { TERMINAL_THEMES } from "./SettingsScreen";
 
 const RENEW_MARGIN_S = 60;
@@ -63,10 +64,8 @@ const SYM_CHARS = ["|", "\\", "?", "-", ":", ";", "!", "~", "@", "$", "*", "^", 
 
 const KEYS_BAR_H = 46; // altura da barra de teclas (px) — reserva do iframe
 
-// FIX kbicon (23/08): folga para o ícone minimizado pousar ACIMA do Dock
-// (bottom-4 + altura ~90px do Dock + respiro). Garante a pilha visual:
-// conteúdo → ícone do teclado → navegação HOK OS → teclado do sistema.
-const DOCK_CLEAR_PX = 116;
+// FIX kbicon (23/08): folga para o ícone minimizado pousar ACIMA do Dock —
+// valores centralizados em src/lib/shell-layers.ts (fonte única de camadas).
 
 // TESTE B — zoom (fontSize ±) via escala visual do iframe ttyd. O xterm roda
 // cross-origin dentro do iframe: não há acesso direto ao fontSize dele, então
@@ -374,14 +373,15 @@ export function TerminalTTYDScreen() {
         )}
       </div>
       {/* TESTE 1 v2 — barra de teclas MINIMIZÁVEL estilo Termius:
-          ícone compacto ↔ barra completa; ancorada ao teclado via kbInset.
-          FIX kbicon: com teclado aberto, o ícone pousa acima do Dock
-          (max(kbInset, DOCK_CLEAR_PX)) e z-[110] > Dock z-[100] — nunca
-          escondido atrás da navegação nem na mesma linha sobreposta. */}
+          ícone compacto ↔ barra completa.
+          FIX zfix definitivo (23/08): posicionamento ABSOLUTO ao box da tela
+          (imune ao containing-block do motion.div do AppShell) e SEM heurística
+          de kbOpen — bottom = max(kbInset, DOCK_CLEAR_PX) em QUALQUER estado
+          (teclado aberto/fechado, zoom, tema): sempre acima do Dock. */}
       {!keysExpanded ? (
         <div
-          className="fixed left-0 right-0 z-[110] flex justify-end px-2 transition-[bottom] duration-150"
-          style={{ bottom: kbOpen ? Math.max(kbInset, DOCK_CLEAR_PX) : kbInset }}
+          className="absolute left-0 right-0 flex justify-end px-2 transition-[bottom] duration-150"
+          style={{ zIndex: SHELL_Z.keysBarMinimized, bottom: Math.max(kbInset, DOCK_CLEAR_PX) }}
         >
           <button type="button" data-testid="ov-toggle"
             onClick={toggleKeysBar}
@@ -393,8 +393,8 @@ export function TerminalTTYDScreen() {
       ) : (
       <div
         data-testid="ov-bar"
-        className="fixed left-0 right-0 z-40 bg-[#0b1626] px-1 py-1"
-        style={{ bottom: kbInset }}
+        className="absolute left-0 right-0 bg-[#0b1626] px-1 py-1"
+        style={{ zIndex: SHELL_Z.keysBarExpanded, bottom: kbInset }}
       >
         {/* grupo extra "..." — F-keys + símbolos */}
         <div data-testid="ov-extra-group" className={"thin-scroll mb-1 flex w-max items-center gap-1 overflow-x-auto " + (extraGroup ? "" : "hidden")} style={{ WebkitOverflowScrolling: "touch" }}>
