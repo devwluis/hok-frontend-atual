@@ -2,7 +2,7 @@
 import { motion } from "framer-motion";
 import { useAppState } from "@/hooks/use-app-state";
 import { cn } from "@/lib/utils";
-import { SHELL_Z, DOCK_BOTTOM_PX } from "@/lib/shell-layers";
+import { SHELL_Z } from "@/lib/shell-layers";
 
 const ICON_SRCS = {
   chat: "/icons/hok-chat.png?v=2",
@@ -19,20 +19,16 @@ const ITEMS = [
 ] as const;
 
 export function Dock() {
-  const { screen, setScreen, keyboardOpen } = useAppState();
-  // FIX kbhide (23/08): oculto enquanto o teclado do sistema está aberto na
-  // tela Terminal — não sobrepor a barra de teclas especiais. Volta quando
-  // o teclado fecha (visualViewport dispara e o estado global reseta).
-  const oculto = keyboardOpen && screen === "terminal";
+  const { screen, setScreen } = useAppState();
 
+  // FIX camadas (23/08): Dock SEMPRE visível — a hierarquia pedida coloca a
+  // navegação ABAIXO da barra de teclas (visível), nunca escondida. A folga
+  // geométrica (DOCK_CLEAR_PX via aboveDock) evita sobreposição real.
   return (
     <div
       data-testid="dock-root"
-      className={cn(
-        "pointer-events-none fixed left-1/2 -translate-x-1/2 transition-all duration-200",
-        oculto ? "opacity-0" : "opacity-100",
-      )}
-      style={{ zIndex: SHELL_Z.dock, bottom: oculto ? DOCK_BOTTOM_PX - 96 : DOCK_BOTTOM_PX }}
+      className="pointer-events-none fixed bottom-4 left-1/2 -translate-x-1/2"
+      style={{ zIndex: SHELL_Z.dock }}
     >
       <motion.div
         initial={{ y: 80, opacity: 0 }}

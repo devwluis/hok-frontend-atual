@@ -2,8 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Palette, Keyboard, Plus, Minus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { appStore } from "@/lib/app-state";
-import { SHELL_Z, DOCK_CLEAR_PX } from "@/lib/shell-layers";
+import { SHELL_Z, aboveDock } from "@/lib/shell-layers";
 import { TERMINAL_THEMES } from "./SettingsScreen";
 
 const RENEW_MARGIN_S = 60;
@@ -130,16 +129,9 @@ export function TerminalTTYDScreen() {
   // mobile abre — usamos window.visualViewport (área REALMENTE visível) para
   // reposicionar a barra colada no topo do teclado, subindo/descendo junto.
   const [kbInset, setKbInset] = useState(0);
-  // FIX kbicon (23/08): teclado aberto detectado por encolhimento do VV em
-  // relação à altura inicial — cobre também navegadores com resizes-content,
-  // onde innerHeight encolhe junto e o inset cruza para ~0 (ícone e Dock
-  // acabavam na mesma linha, Dock z-100 por cima do ícone z-40).
-  const [kbOpen, setKbOpen] = useState(false);
-  const vvH0 = useRef<number | null>(null);
 
   // TESTE minimizável estilo Termius: ícone compacto ↔ barra completa.
-  // Preferência persistida; espelhada em ref para o listener do VV decidir
-  // se publica keyboardOpen ao Dock (só esconde Dock com barra EXPANDIDA).
+  // Preferência persistida.
   const [keysExpanded, setKeysExpanded] = useState(() => {
     try {
       return localStorage.getItem("hokma.terminal.keysbar.v1") === "expanded";
@@ -147,10 +139,6 @@ export function TerminalTTYDScreen() {
       return false;
     }
   });
-  const keysExpandedRef = useRef(keysExpanded);
-  useEffect(() => {
-    keysExpandedRef.current = keysExpanded;
-  }, [keysExpanded]);
   const toggleKeysBar = useCallback(() => {
     setKeysExpanded((v) => {
       const nv = !v;
@@ -174,24 +162,7 @@ export function TerminalTTYDScreen() {
         0,
         Math.round(window.innerHeight - vv.height - (vv.offsetTop || 0)),
       );
-      if (vvH0.current === null) vvH0.current = vv.height;
-      const open = vv.height < vvH0.current - 120;
-      if (!open) vvH0.current = vv.height; // recalibra (rotação, chrome do browser)
       setKbInset(inset);
-      setKbOpen(open);
-      // FIX kbhide refinado: o Dock se oculta apenas com a barra de teclas
-      // EXPANDIDA e teclado aberto na tela Terminal. No estado minimizado há
-      // espaço livre suficiente para ambos coexistirem.
-      try {
-        const st = appStore.get();
-        if (st.screen === "terminal") {
-          appStore.set({ keyboardOpen: inset > 24 && keysExpandedRef.current });
-        } else if (inset === 0) {
-          appStore.set({ keyboardOpen: false });
-        }
-      } catch {
-        /* noop */
-      }
     };
     vv.addEventListener("resize", onVV);
     vv.addEventListener("scroll", onVV);
@@ -199,11 +170,6 @@ export function TerminalTTYDScreen() {
     return () => {
       vv.removeEventListener("resize", onVV);
       vv.removeEventListener("scroll", onVV);
-      try {
-        appStore.set({ keyboardOpen: false });
-      } catch {
-        /* noop */
-      }
     };
   }, []);
 
@@ -421,6 +387,7 @@ export function TerminalTTYDScreen() {
       <div
         data-testid="term-tabs"
         className="thin-scroll flex items-center gap-1 overflow-x-auto border-b border-emerald-900/40 px-1 py-1"
+        style={{ zIndex: SHELL_Z.terminalTabs }}
       >
         {tabs.ids.map((id) => (
           <div
@@ -494,7 +461,7 @@ export function TerminalTTYDScreen() {
       {!keysExpanded ? (
         <div
           className="absolute left-0 right-0 flex justify-end px-2 transition-[bottom] duration-150"
-          style={{ zIndex: SHELL_Z.keysBarMinimized, bottom: Math.max(kbInset, DOCK_CLEAR_PX) }}
+          style={{ zIndex: SHELL_Z.keysBarMinimized, bottom: aboveDock(kbInset) }}
         >
           <button type="button" data-testid="ov-toggle"
             onClick={toggleKeysBar}
@@ -507,7 +474,7 @@ export function TerminalTTYDScreen() {
       <div
         data-testid="ov-bar"
         className="absolute left-0 right-0 bg-[#0b1626] px-1 py-1"
-        style={{ zIndex: SHELL_Z.keysBarExpanded, bottom: kbInset }}
+        style={{ zIndex: SHELL_Z.keysBarExpanded, bottom: aboveDock(kbInset) }}
       >
         {/* GRUPO EXTRA "..." — Alt, Tab/Space/⌫/⏎, Home/End/PgUp/PgDn/Ins/Del,
             símbolos, F1-F12 e sequências ^W ^R ^X ^D ^C ^L ^S ^Z */}

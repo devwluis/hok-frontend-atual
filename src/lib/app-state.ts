@@ -22,9 +22,6 @@ type StoreState = {
   drawerOpen: boolean;
   settingsOpen: boolean;
   conversationId: string | null;
-  // FIX kbhide (23/08): teclado do sistema aberto na tela Terminal — o Dock
-  // se oculta para não sobrepor a barra de teclas especiais.
-  keyboardOpen: boolean;
 };
 
 const listeners = new Set<() => void>();
@@ -33,7 +30,6 @@ let state: StoreState = {
   drawerOpen: false,
   settingsOpen: false,
   conversationId: null,
-  keyboardOpen: false,
 };
 
 export const appStore = {

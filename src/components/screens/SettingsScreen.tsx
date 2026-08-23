@@ -8,6 +8,7 @@ import { hokGet } from "@/lib/hok-api";
 import { useOpenRouterCredits } from "@/hooks/use-openrouter-credits";
 import { useOpenCodeStatus } from "@/hooks/use-opencode-status";
 import { cn } from "@/lib/utils";
+import { BUILD_ID } from "@/lib/build-info";
 
 // Unified settings key — same as SettingsModal
 const SETTINGS_KEY = "hokma.settings.v1";
@@ -407,6 +408,10 @@ export function SettingsScreen() {
         <strong>Dica de segurança:</strong> As chaves são salvas localmente no seu dispositivo (localStorage).
         Nunca compartilhe este dispositivo com acesso ao navegador sem bloquear a sessão.
       </div>
+
+      <p className="mt-2 text-center text-[10px] text-muted-foreground/50" data-testid="build-id">
+        HOK OS · build {BUILD_ID}
+      </p>
     </ScreenFrame>
   );
 }
