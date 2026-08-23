@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal } from "lucide-react";
+import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx } from "@/lib/shell-layers";
 import { TERMINAL_THEMES, readTerminalTheme } from "./SettingsScreen";
@@ -711,50 +711,57 @@ export function TerminalTTYDScreen() {
           </button>
         </div>
       </div>
-      {/* TESTE C — faixa de abas (uma sessão tmux por aba) */}
+      {/* PARTE 5 — faixa de abas do redesign religada às sessões tmux reais
+          (hok-ttyd legado / hok-terminal-N): x → POST close, + → nova sessão */}
       <div
         data-testid="term-tabs"
-        className="thin-scroll flex items-center gap-1 overflow-x-auto border-b border-emerald-900/40 px-1 py-1"
-        style={{ zIndex: SHELL_Z.terminalTabs }}
+        className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{ borderColor: "var(--hok-line)", background: "var(--hok-panel)", zIndex: SHELL_Z.terminalTabs }}
       >
-        {tabs.ids.map((id) => (
-          <div
-            key={id}
-            className={cn(
-              "flex shrink-0 items-center gap-1 rounded-lg border px-2 py-0.5 text-[10px] font-semibold",
-              id === activeId
-                ? "border-emerald-400/60 bg-emerald-500/15 text-emerald-200"
-                : "border-emerald-900/50 text-emerald-400/70",
-            )}
-          >
+        <span className="text-[9px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--hok-muted)" }}>sessions</span>
+        <div className="h-5 w-px shrink-0" style={{ background: "var(--hok-line)" }} />
+        {tabs.ids.map((id) => {
+          const active = id === activeId;
+          return (
             <button
+              key={id}
               type="button"
               onClick={() => setTabs((s) => ({ ...s, active: id }))}
               data-testid={`term-tab-${id}`}
               title={`Sessão tmux ${sessionNameOf(id)}`}
+              className="group flex h-8 min-w-[140px] shrink-0 items-center gap-2 rounded-md border px-2.5 text-left transition-colors"
+              style={{
+                color: active ? "var(--hok-ink)" : "var(--hok-muted)",
+                background: active ? "var(--hok-raised)" : "transparent",
+                borderColor: active ? "var(--hok-accent-soft)" : "transparent",
+              }}
             >
-              {id === "ttyd" ? "main" : `t${id}`}
+              <Circle size={8} fill="var(--hok-tmux)" style={{ color: "var(--hok-tmux)" }} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11px] font-semibold">{id === "ttyd" ? "main" : `t${id}`}</span>
+                <span className="block truncate font-mono text-[9px]" style={{ color: "var(--hok-muted)" }}>{sessionNameOf(id)}</span>
+              </span>
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={`Fechar ${sessionNameOf(id)}`}
+                data-testid={`term-close-${id}`}
+                onClick={(event) => { event.stopPropagation(); closeTab(id); }}
+                onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); closeTab(id); } }}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-50 transition-opacity hover:bg-white/10 hover:opacity-100"
+              >
+                <X size={12} />
+              </span>
             </button>
-            <button
-              type="button"
-              onClick={() => closeTab(id)}
-              data-testid={`term-close-${id}`}
-              title="Fechar esta sessão"
-              className="text-emerald-600 hover:text-red-400"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={openTab}
-          data-testid="term-tab-new"
-          title="Nova aba/sessão de terminal"
-          className="shrink-0 rounded-lg border border-emerald-900/50 px-2 py-0.5 text-[12px] font-bold text-emerald-300 hover:bg-emerald-500/10 active:bg-emerald-400 active:text-emerald-950"
-        >
-          +
+          );
+        })}
+        <button type="button" aria-label="Nova sessão de terminal" onClick={openTab} data-testid="term-tab-new" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-dashed transition-colors hover:bg-white/10" style={{ borderColor: "var(--hok-line)", color: "var(--hok-accent)" }}>
+          <Plus size={15} />
         </button>
+        <div className="ml-auto hidden shrink-0 items-center gap-2 pr-1 sm:flex">
+          <span className="font-mono text-[9px]" style={{ color: "var(--hok-muted)" }}>tty/{activeId === "ttyd" ? "00" : activeId.padStart(2, "0")}</span>
+          <span className="flex items-center gap-1 text-[9px] font-semibold" style={{ color: "var(--hok-tmux)" }}><Activity size={11} /> attached</span>
+        </div>
       </div>
       <div
         className="relative min-h-0 flex-1 overflow-hidden bg-black"
