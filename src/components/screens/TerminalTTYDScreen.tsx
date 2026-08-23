@@ -24,7 +24,7 @@ let sticky = { ctrl: false, alt: false }; // espelhado em state p/ visual
 
 function applyMods(label: string, name: string): { key?: string; text?: string } {
   if (sticky.ctrl && !/^F\d+$/.test(label)) {
-    if (/^(Up|Down|Left|Right|Space|Enter|BSpace|Tab|Delete|Insert)$/.test(name))
+    if (/^(Up|Down|Left|Right|Space|Enter|BSpace|Tab|BTab|Delete|Insert)$/.test(name))
       return { key: "C-" + name };
   }
   if (sticky.alt && !/^F\d+$/.test(label)) {
@@ -40,17 +40,27 @@ const k = (label: string, name: string): XKey => ({
   send: () => applyMods(label, name),
 });
 
-const NAV_KEYS: XKey[] = [
-  k("↑", "Up"), k("↓", "Down"), k("←", "Left"), k("→", "Right"),
+// ADENDO barra Termius (23/08) — hierarquia de 2 níveis:
+// Linha SEMPRE visível: Ctrl(sticky) · Esc · ← ↑ ↓ → · S-Tab (Shift+Tab).
+// TUDO o resto fica atrás do botão "..." (grupo extra).
+const ROW_KEYS: XKey[] = [
+  k("←", "Left"), k("↑", "Up"), k("↓", "Down"), k("→", "Right"),
+  { ...k("S-Tab", "BTab"), tid: "BTab" },
+];
+const NAV_EXTRA: XKey[] = [
   k("Home", "Home"), k("End", "End"),
   k("PgUp", "PageUp"), k("PgDn", "PageDown"),
   k("Ins", "Insert"), k("Del", "Delete"),
 ];
+const EDIT_EXTRA: XKey[] = [
+  k("Tab", "Tab"), k("Space", "Space"), k("⌫", "BSpace"), k("⏎", "Enter"),
+];
 const COMBO_KEYS: XKey[] = [
-  { ...k("^C", "C-c"), tid: "Cc" },
-  { ...k("^D", "C-d"), tid: "Cd" },
   { ...k("^W", "C-w"), tid: "Cw" },
   { ...k("^R", "C-r"), tid: "Cr" },
+  { ...k("^X", "C-x"), tid: "Cx" },
+  { ...k("^D", "C-d"), tid: "Cd" },
+  { ...k("^C", "C-c"), tid: "Cc" },
   { ...k("^L", "C-l"), tid: "Cl" },
   { ...k("^S", "C-s"), tid: "Cs" },
   { ...k("^Z", "C-z"), tid: "Cz" },
@@ -396,8 +406,34 @@ export function TerminalTTYDScreen() {
         className="absolute left-0 right-0 bg-[#0b1626] px-1 py-1"
         style={{ zIndex: SHELL_Z.keysBarExpanded, bottom: kbInset }}
       >
-        {/* grupo extra "..." — F-keys + símbolos */}
+        {/* GRUPO EXTRA "..." — Alt, Tab/Space/⌫/⏎, Home/End/PgUp/PgDn/Ins/Del,
+            símbolos, F1-F12 e sequências ^W ^R ^X ^D ^C ^L ^S ^Z */}
         <div data-testid="ov-extra-group" className={"thin-scroll mb-1 flex w-max items-center gap-1 overflow-x-auto " + (extraGroup ? "" : "hidden")} style={{ WebkitOverflowScrolling: "touch" }}>
+          <button type="button" data-testid="ov-sticky-alt"
+            onClick={() => toggleSticky("alt")}
+            title="Alt pegajoso (combina com a próxima tecla)"
+            className={cn(
+              "flex h-9 min-w-[44px] shrink-0 select-none items-center justify-center rounded-lg border px-2 text-[11px] font-semibold",
+              sticky.alt
+                ? "border-emerald-300 bg-emerald-400/20 text-emerald-200"
+                : "border-sky-800/50 bg-sky-500/5 text-sky-300",
+            )}>
+            Alt
+          </button>
+          {NAV_EXTRA.map((xk) => (
+            <button key={xk.label} type="button" data-testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)}
+              className="flex h-9 min-w-[38px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[11px] text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
+              {xk.label}
+            </button>
+          ))}
+          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
+          {EDIT_EXTRA.map((xk) => (
+            <button key={xk.label} type="button" data-testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)}
+              className="flex h-9 min-w-[38px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[11px] text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
+              {xk.label}
+            </button>
+          ))}
+          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
           {FN_KEYS.map((xk) => (
             <button key={xk.label} type="button" data-testid={`ov-fn-${xk.label}`} onClick={() => pressXKey(xk)}
               className="flex h-9 min-w-[34px] shrink-0 select-none items-center justify-center rounded-lg border border-sky-800/50 bg-sky-500/5 px-1.5 text-[10px] font-mono text-sky-300 active:bg-sky-400 active:text-emerald-950">
@@ -412,7 +448,15 @@ export function TerminalTTYDScreen() {
               {s}
             </button>
           ))}
+          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
+          {COMBO_KEYS.map((xk) => (
+            <button key={xk.tid ?? xk.label} type="button" data-testid={`ov-combo-${xk.tid}`} onClick={() => pressXKey(xk)}
+              className="flex h-9 min-w-[36px] shrink-0 select-none items-center justify-center rounded-lg border border-red-800/50 bg-red-500/5 px-2 text-[10px] font-mono text-red-300 active:bg-red-400 active:text-emerald-950">
+              {xk.label}
+            </button>
+          ))}
         </div>
+        {/* LINHA SEMPRE VISÍVEL (compacta): Ctrl · Esc · setas · S-Tab · "..." */}
         <div className="thin-scroll flex w-max items-center gap-1 overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
           <button type="button" data-testid="ov-collapse"
             onClick={toggleKeysBar}
@@ -421,31 +465,34 @@ export function TerminalTTYDScreen() {
             <Keyboard className="h-4 w-4" />
           </button>
           <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
-          {NAV_KEYS.map((xk) => (
+          <button type="button" data-testid="ov-sticky-ctrl"
+            onClick={() => toggleSticky("ctrl")}
+            title="Ctrl pegajoso (combina com a próxima tecla)"
+            className={cn(
+              "flex h-9 min-w-[44px] shrink-0 select-none items-center justify-center rounded-lg border px-2 text-[11px] font-semibold",
+              sticky.ctrl
+                ? "border-red-300 bg-red-400/20 text-red-200"
+                : "border-red-800/50 bg-red-500/5 text-red-300",
+            )}>
+            Ctrl
+          </button>
+          {[k("Esc", "Escape")].map((xk) => (
             <button key={xk.label} type="button" data-testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)}
               className="flex h-9 min-w-[38px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[12px] text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
               {xk.label}
             </button>
           ))}
-          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
-          {[k("Esc", "Escape"), k("Tab", "Tab"), k("Space", "Space"), k("⌫", "BSpace"), k("⏎", "Enter")].map((xk) => (
-            <button key={xk.label} type="button" data-testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)}
-              className="flex h-9 min-w-[38px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[11px] text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
+          {ROW_KEYS.map((xk) => (
+            <button key={xk.tid ?? xk.label} type="button" data-testid={`ov-key-${xk.tid ?? xk.label}`} onClick={() => pressXKey(xk)}
+              className="flex h-9 min-w-[36px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-1.5 text-[13px] text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
               {xk.label}
             </button>
           ))}
           <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
-          {COMBO_KEYS.map((xk) => (
-            <button key={xk.tid ?? xk.label} type="button" data-testid={`ov-combo-${xk.tid}`} onClick={() => pressXKey(xk)}
-              className="flex h-9 min-w-[36px] shrink-0 select-none items-center justify-center rounded-lg border border-red-800/50 bg-red-500/5 px-2 text-[10px] font-mono text-red-300 active:bg-red-400 active:text-emerald-950">
-              {xk.label}
-            </button>
-          ))}
-          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
-          {/* "..." alterna o grupo extra (F-keys + símbolos) */}
+          {/* "..." alterna o grupo extra */}
           <button type="button" data-testid="ov-more"
             onClick={() => setExtraGroup((v) => !v)}
-            title="Mais teclas (F1-F12 e símbolos)"
+            title="Mais teclas (Alt, Tab, Ins/Del, Home/Pg, símbolos, F1-F12, ^combos)"
             className={cn(
               "flex h-9 min-w-[44px] shrink-0 select-none items-center justify-center rounded-lg border px-2 text-[14px] font-bold tracking-widest",
               extraGroup ? "border-emerald-300 bg-emerald-400/20 text-emerald-200" : "border-emerald-900/50 bg-emerald-500/5 text-emerald-300",
