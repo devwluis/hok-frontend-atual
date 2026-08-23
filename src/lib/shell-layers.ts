@@ -74,7 +74,7 @@ export const aboveDock = (kbInset: number): number =>
 //   teclado minimizado: folga do Dock + altura do ícone (40px + respiro)
 //   barra expandida:    folga do Dock + altura real da(s) linha(s) da barra
 //                       → painel do opencode 100% visível acima da barra
-export const KEYS_ICON_BAND_PX = 44;
+export const KEYS_ICON_BAND_PX = 52; // ícone 48px (PARTE 7) + respiro
 export const KEYS_BAR_ROW_PX = 48;
 // FIX alinhamento (23/08, pedido do usuário): faixa verde do tmux QUASE
 // encostada na barra de teclas — buffer mínimo (4px) só contra clip de

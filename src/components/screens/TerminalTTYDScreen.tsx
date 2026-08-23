@@ -881,11 +881,20 @@ export function TerminalTTYDScreen() {
           className="absolute left-0 right-0 flex justify-end px-2 transition-[bottom] duration-150"
           style={{ zIndex: SHELL_Z.keysBarMinimized, bottom: aboveDock(kbInset) }}
         >
+          {/* PARTE 7 — ícone minimizado com o visual do mockup (painel +
+              borda âmbar + dot tmux + shadow profundo), semântica Maximize2
+              preservada e aboveDock(kbInset) incondicional (regra validada). */}
           <button type="button" data-testid="ov-toggle"
             onClick={toggleKeysBar}
             title="Maximizar: ver chat completo + teclado especial"
-            className="relative flex h-10 w-10 select-none items-center justify-center rounded-xl border border-emerald-400/60 bg-[#0b1626]/95 text-emerald-300 shadow-lg active:bg-emerald-400 active:text-emerald-950">
-            <Maximize2 className="h-5 w-5" />
+            className="relative flex h-12 w-12 select-none items-center justify-center rounded-2xl border shadow-[0_10px_32px_rgba(0,0,0,.28)] transition-transform duration-200 hover:-translate-y-0.5 active:scale-95"
+            style={{
+              background: "var(--hok-panel)",
+              borderColor: "var(--hok-accent)",
+              color: "var(--hok-accent)",
+            }}>
+            <Maximize2 className="h-5 w-5" strokeWidth={1.8} />
+            <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2" style={{ background: "var(--hok-tmux)", borderColor: "var(--hok-bg)" }} />
           </button>
         </div>
       ) : (
