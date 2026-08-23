@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle } from "lucide-react";
+import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx } from "@/lib/shell-layers";
 import { TERMINAL_THEMES, readTerminalTheme } from "./SettingsScreen";
@@ -165,6 +165,11 @@ export function TerminalTTYDScreen() {
   const committedRef = useRef(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [recovering, setRecovering] = useState(false);
+  // PARTE 6 — modo maximizado: colapsa o chrome LOCAL do terminal (header +
+  // abas) para dar máxima altura à conversa. SEM fixed inset-0 (decisão da
+  // Parte 1): o Dock real do app permanece navegável.
+  const [maximized, setMaximized] = useState(false);
+  const startRecovery = useCallback(() => setRecovering(true), []);
   // FIX refit (23/08): o FitAddon do xterm (dentro do iframe cross-origin)
   // mede as células ANTES da fonte terminal carregar → conta linhas demais →
   // o rodapé do TUI (caixa de digitação + faixa verde do tmux) fica clipado
@@ -363,7 +368,6 @@ export function TerminalTTYDScreen() {
   }, [recovering, probeHealth]);
 
   useEffect(() => {
-    const startRecovery = () => setRecovering(true);
     const onOnline = () => startRecovery();
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
@@ -382,7 +386,7 @@ export function TerminalTTYDScreen() {
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [startRecovery]);
 
   // TESTE C — abas com sessões tmux individuais (persistidas)
   const [tabs, setTabs] = useState<TabsState>(loadTabs);
@@ -658,7 +662,7 @@ export function TerminalTTYDScreen() {
       {/* PARTE 3 — header do redesign: logo + badge, zoom c/ reset, paleta */}
       <div
         data-testid="term-header"
-        className="flex h-[54px] shrink-0 items-center justify-between border-b px-3"
+        className={`flex h-[54px] shrink-0 items-center justify-between border-b px-3 ${maximized ? "hidden" : ""}`}
         style={{ borderColor: "var(--hok-line)", background: "var(--hok-panel)", zIndex: SHELL_Z.terminalHeader }}
       >
         <div className="flex min-w-0 items-center gap-2.5">
@@ -715,7 +719,7 @@ export function TerminalTTYDScreen() {
           (hok-ttyd legado / hok-terminal-N): x → POST close, + → nova sessão */}
       <div
         data-testid="term-tabs"
-        className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className={`flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${maximized ? "hidden" : ""}`}
         style={{ borderColor: "var(--hok-line)", background: "var(--hok-panel)", zIndex: SHELL_Z.terminalTabs }}
       >
         <span className="text-[9px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--hok-muted)" }}>sessions</span>
@@ -763,9 +767,35 @@ export function TerminalTTYDScreen() {
           <span className="flex items-center gap-1 text-[9px] font-semibold" style={{ color: "var(--hok-tmux)" }}><Activity size={11} /> attached</span>
         </div>
       </div>
+      {/* PARTE 6 — toolbar da seção: status da sessão + Reconectar (real) +
+          Maximizar (colapso do chrome local). Permanece visível NO maximizado
+          (é o botão de saída). Search/Copy: sem backend ainda (Copy no TESTE F). */}
+      <div className="flex h-8 shrink-0 items-center justify-between px-3">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: err ? "#f87171" : url ? "var(--hok-tmux)" : "#fbbf24" }} />
+          <span className="truncate font-mono text-[10px]" style={{ color: "var(--hok-terminal-muted)" }}>
+            {err ? err : `${sessionNameOf(activeId)} · ${url ? "anexado" : "conectando…"}`}
+          </span>
+        </div>
+        <div className="ml-2 flex shrink-0 items-center gap-1">
+          <button type="button" onClick={startRecovery} title="Reconectar sessão (backoff automático)" data-testid="term-reconnect"
+            className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: "var(--hok-terminal-muted)" }}>
+            <RotateCcw size={13} />
+          </button>
+          <button type="button" onClick={() => setMaximized((v) => !v)} title={maximized ? "Sair da tela cheia do terminal" : "Maximizar terminal (oculta header/abas)"} data-testid="term-maximize"
+            className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: "var(--hok-accent)" }}>
+            {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
+        </div>
+      </div>
       <div
-        className="relative min-h-0 flex-1 overflow-hidden bg-black"
-        style={{ paddingBottom: keysReservePx(keysExpanded, extraGroup) - fitNudgePx }}
+        className="relative min-h-0 flex-1 overflow-hidden rounded-lg border"
+        style={{
+          paddingBottom: keysReservePx(keysExpanded, extraGroup) - fitNudgePx,
+          background: "var(--hok-terminal)",
+          borderColor: "var(--hok-terminal-line)",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,.025)",
+        }}
       >
         {recovering && (
           <div
