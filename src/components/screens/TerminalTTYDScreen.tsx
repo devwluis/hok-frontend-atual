@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Palette, Keyboard, Plus, Minus } from "lucide-react";
+import { Palette, Keyboard, Plus, Minus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { appStore } from "@/lib/app-state";
 import { SHELL_Z, DOCK_CLEAR_PX } from "@/lib/shell-layers";
@@ -93,6 +93,29 @@ function readFontScale(): number {
     /* noop */
   }
   return 1;
+}
+
+// TESTE C — múltiplas abas: cada aba = sessão tmux própria. O id "ttyd" é a
+// sessão legada (hok-ttyd); ids numéricos criam hok-terminal-N via url-arg
+// do ttyd (-a) + wrapper systemd tmux-tab.sh.
+type TabsState = { ids: string[]; active: string };
+const TABS_KEY = "hokma.terminal.tabs.v1";
+
+function loadTabs(): TabsState {
+  try {
+    const raw = localStorage.getItem(TABS_KEY);
+    if (raw) {
+      const t = JSON.parse(raw) as TabsState;
+      if (Array.isArray(t.ids) && t.ids.length > 0 && t.ids.includes(t.active)) return t;
+    }
+  } catch {
+    /* noop */
+  }
+  return { ids: ["ttyd"], active: "ttyd" };
+}
+
+function sessionNameOf(id: string): string {
+  return id === "ttyd" ? "hok-ttyd" : "hok-terminal-" + id;
 }
 
 export function TerminalTTYDScreen() {
@@ -238,16 +261,52 @@ export function TerminalTTYDScreen() {
     }
   })() : "";
 
+  // TESTE C — abas com sessões tmux individuais (persistidas)
+  const [tabs, setTabs] = useState<TabsState>(loadTabs);
+  useEffect(() => {
+    try {
+      localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
+    } catch {
+      /* noop */
+    }
+  }, [tabs]);
+  const activeId = tabs.active;
+  const activeSession = sessionNameOf(activeId);
+  const openTab = useCallback(() => {
+    setTabs(({ ids }) => {
+      let n = 1;
+      while (ids.includes(String(n))) n++;
+      return { ids: [...ids, String(n)], active: String(n) };
+    });
+  }, []);
+  const closeTab = useCallback(
+    (id: string) => {
+      // mata a sessão tmux da aba (idempotente no server; best-effort)
+      void fetch(`${serverBase}/terminal/ttyd/close?token=${encodeURIComponent(tokQ)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: sessionNameOf(id) }),
+      }).catch(() => {});
+      setTabs(({ ids, active }) => {
+        const next = ids.filter((x) => x !== id);
+        if (!next.length) return { ids: ["1"], active: "1" }; // sempre ≥1 aba
+        const idx = ids.indexOf(id);
+        return { ids: next, active: active === id ? next[Math.max(0, idx - 1)] : active };
+      });
+    },
+    [serverBase, tokQ],
+  );
+
   const sendToKeys = useCallback(
     async (payload: { key?: string; text?: string }) => {
       const qs = new URLSearchParams({ token: tokQ });
       await fetch(`${serverBase}/terminal/ttyd/key?${qs}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, session: activeSession }),
       }).catch(() => {});
     },
-    [serverBase, tokQ],
+    [serverBase, tokQ, activeSession],
   );
 
   const pressXKey = (xk: XKey) => {
@@ -309,9 +368,9 @@ export function TerminalTTYDScreen() {
     void fetch(serverBase + "/terminal/ttyd/theme?token=" + encodeURIComponent(tok), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ osc }),
+      body: JSON.stringify({ osc, session: activeSession }),
     }).catch(() => {});
-  }, [themeIdx, url, serverBase]);
+  }, [themeIdx, url, serverBase, activeSession]);
 
   // TESTE B — zoom persistido (escala visual do iframe; 1 = 100%)
   const [fontScale, setFontScale] = useState(readFontScale);
@@ -358,6 +417,50 @@ export function TerminalTTYDScreen() {
           </button>
         </div>
       </div>
+      {/* TESTE C — faixa de abas (uma sessão tmux por aba) */}
+      <div
+        data-testid="term-tabs"
+        className="thin-scroll flex items-center gap-1 overflow-x-auto border-b border-emerald-900/40 px-1 py-1"
+      >
+        {tabs.ids.map((id) => (
+          <div
+            key={id}
+            className={cn(
+              "flex shrink-0 items-center gap-1 rounded-lg border px-2 py-0.5 text-[10px] font-semibold",
+              id === activeId
+                ? "border-emerald-400/60 bg-emerald-500/15 text-emerald-200"
+                : "border-emerald-900/50 text-emerald-400/70",
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => setTabs((s) => ({ ...s, active: id }))}
+              data-testid={`term-tab-${id}`}
+              title={`Sessão tmux ${sessionNameOf(id)}`}
+            >
+              {id === "ttyd" ? "main" : `t${id}`}
+            </button>
+            <button
+              type="button"
+              onClick={() => closeTab(id)}
+              data-testid={`term-close-${id}`}
+              title="Fechar esta sessão"
+              className="text-emerald-600 hover:text-red-400"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={openTab}
+          data-testid="term-tab-new"
+          title="Nova aba/sessão de terminal"
+          className="shrink-0 rounded-lg border border-emerald-900/50 px-2 py-0.5 text-[12px] font-bold text-emerald-300 hover:bg-emerald-500/10 active:bg-emerald-400 active:text-emerald-950"
+        >
+          +
+        </button>
+      </div>
       <div
         className="relative min-h-0 flex-1 overflow-hidden bg-black"
         style={{ paddingBottom: KEYS_BAR_H }}
@@ -366,8 +469,8 @@ export function TerminalTTYDScreen() {
           <div className="p-3 text-[11px] text-red-300">⚠️ {err}</div>
         ) : url ? (
           <iframe
-            key={url}
-            src={url}
+            key={`${url}|${activeId}`}
+            src={`${url}&arg=${encodeURIComponent(activeId)}`}
             title="Terminal HOK"
             className="h-full w-full border-0 bg-black"
             style={{
