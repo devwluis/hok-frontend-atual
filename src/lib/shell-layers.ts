@@ -75,15 +75,18 @@ export const aboveDock = (kbInset: number): number =>
 //   barra expandida:    folga do Dock + altura real da(s) linha(s) da barra
 //                       → painel do opencode 100% visível acima da barra
 export const KEYS_ICON_BAND_PX = 52; // ícone 48px (PARTE 7) + respiro
-export const KEYS_BAR_ROW_PX = 48;
-// FIX alinhamento (23/08, pedido do usuário): faixa verde do tmux QUASE
-// encostada na barra de teclas — buffer mínimo (4px) só contra clip de
-// arredondamento entre dispositivos. Era 20px (vão visível).
+export const KEYS_BAR_ROW_PX = 48;   // estimativa por linha (fallback)
+// FIX alinhamento (23/08): faixa verde QUASE encostada na barra — buffer
+// mínimo (4px) só contra clip de arredondamento entre dispositivos.
 export const KEYS_SAFETY_PX = 4;
-export const keysReservePx = (expanded: boolean, extraGroup: boolean): number =>
+// FIX medição (23/08): a altura REAL da barra é medida no componente
+// (ResizeObserver) e entra aqui — a reserva acompanha qualquer layout de
+// teclas (grupo extra aberto, teclas futuras) sem constantes manuais.
+// barH = 0 → fallback nas estimativas.
+export const keysReservePx = (expanded: boolean, extraGroup: boolean, barH = 0): number =>
   DOCK_CLEAR_PX +
   (expanded
-    ? (extraGroup ? KEYS_BAR_ROW_PX * 2 : KEYS_BAR_ROW_PX) + KEYS_SAFETY_PX
+    ? (barH || (extraGroup ? KEYS_BAR_ROW_PX * 2 : KEYS_BAR_ROW_PX)) + KEYS_SAFETY_PX
     : KEYS_ICON_BAND_PX);
 
 // FIX kbfocus v2: com o teclado do sistema aberto, o iframe ENCOLHE essa
@@ -99,11 +102,12 @@ export const keysReservePx = (expanded: boolean, extraGroup: boolean): number =>
 //               teclado (o ícone compacto flutua acima da faixa, no componente)
 const BAR_TOP_GAP_PX = 2;
 const FAIXA_KEYBOARD_BUFFER_PX = 4;
-export const keyboardShiftPx = (kbInset: number, expanded: boolean): number => {
+export const keyboardShiftPx = (kbInset: number, expanded: boolean, barH = 0): number => {
   if (kbInset <= 0) return 0;
+  const barPx = barH || KEYS_BAR_ROW_PX;
   const desiredBottom = expanded
-    ? kbInset + KEYS_BAR_ROW_PX + BAR_TOP_GAP_PX
+    ? kbInset + barPx + BAR_TOP_GAP_PX
     : kbInset + FAIXA_KEYBOARD_BUFFER_PX;
-  const reserve = keysReservePx(expanded, false);
+  const reserve = keysReservePx(expanded, false, barPx);
   return Math.max(0, desiredBottom - reserve);
 };

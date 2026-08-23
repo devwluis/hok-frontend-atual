@@ -234,16 +234,34 @@ export function TerminalTTYDScreen() {
       return nv;
     });
   }, [focusTerminalInput]);
-  // Encolhimento do iframe com teclado aberto — fórmula centralizada em
-  // shell-layers.ts (keyboardShiftPx): expandida → rodapé acima da barra;
-  // minimizada → faixa verde COLADA ao topo do teclado (zero vão).
-  const kbShift = keyboardShiftPx(kbInset, keysExpanded);
 
   const [extraGroup, setExtraGroup] = useState(false);
   useEffect(() => () => {
     nudgeTimersRef.current.forEach(clearTimeout);
     if (sbHideTimer.current) clearTimeout(sbHideTimer.current);
   }, []);
+  // FIX medição (23/08): altura REAL da barra expandida via ResizeObserver →
+  // reserva e deslocamento exatos (fim do estimate drift que cortava a
+  // faixa verde com o grupo "..." aberto).
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const [barH, setBarH] = useState(0);
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el || !keysExpanded) {
+      setBarH(0);
+      return;
+    }
+    const update = () => setBarH(el.offsetHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [keysExpanded, extraGroup]);
+  // Encolhimento do iframe com teclado aberto — fórmula centralizada em
+  // shell-layers.ts (keyboardShiftPx): expandida → rodapé acima da barra;
+  // minimizada → faixa verde COLADA ao topo do teclado (zero vão).
+  const kbShift = keyboardShiftPx(kbInset, keysExpanded, barH);
+
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) {
@@ -807,7 +825,7 @@ export function TerminalTTYDScreen() {
       <div
         className="relative min-h-0 flex-1 overflow-hidden rounded-lg border"
         style={{
-          paddingBottom: keysReservePx(keysExpanded, extraGroup) - fitNudgePx,
+          paddingBottom: keysReservePx(keysExpanded, extraGroup, barH) - fitNudgePx,
           background: "var(--hok-terminal)",
           borderColor: "var(--hok-terminal-line)",
           boxShadow: "inset 0 1px 0 rgba(255,255,255,.025)",
@@ -915,6 +933,7 @@ export function TerminalTTYDScreen() {
         </div>
       ) : (
       <div
+        ref={barRef}
         data-testid="ov-bar"
         className="absolute left-0 right-0 rounded-t-xl border border-b-0 px-2 pb-2 pt-2"
         style={{
