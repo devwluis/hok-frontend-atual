@@ -133,6 +133,18 @@ export function TerminalTTYDScreen() {
   // abaixo do visível ("caixa de digitação quase cortada"). Oscilar 2px na
   // reserva dispara window.resize interno do iframe → refit correto.
   const [fitNudgePx, setFitNudgePx] = useState(0);
+  // FIX kbfocus (23/08): ao MAXIMIZAR, abrir o teclado do sistema. O iframe é
+  // cross-origin (não dá para focar a textarea do xterm diretamente), mas
+  // iframe.focus() feito DENTRO do gesto de toque delega o foco ao elemento
+  // ativo do iframe (textarea do xterm) e o Chromium abre o IME.
+  const iframeElRef = useRef<HTMLIFrameElement | null>(null);
+  const focusTerminalInput = useCallback(() => {
+    try {
+      iframeElRef.current?.focus({ preventScroll: true });
+    } catch {
+      /* noop */
+    }
+  }, []);
   const nudgeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const scheduleFitNudge = useCallback(() => {
     nudgeTimersRef.current.forEach(clearTimeout);
@@ -174,9 +186,11 @@ export function TerminalTTYDScreen() {
       } catch {
         /* noop */
       }
+      // MAXIMIZAR: dentro do gesto, delega foco ao terminal → IME abre
+      if (nv) focusTerminalInput();
       return nv;
     });
-  }, []);
+  }, [focusTerminalInput]);
   const [extraGroup, setExtraGroup] = useState(false);
   useEffect(() => () => {
     nudgeTimersRef.current.forEach(clearTimeout);
@@ -548,6 +562,7 @@ export function TerminalTTYDScreen() {
         ) : url ? (
           <iframe
             key={`${url}|${activeId}|${reloadNonce}`}
+            ref={iframeElRef}
             src={`${urlRef.current ?? url}&arg=${encodeURIComponent(activeId)}`}
             title="Terminal HOK"
             className="h-full w-full border-0 bg-black"
@@ -557,7 +572,10 @@ export function TerminalTTYDScreen() {
               scheduleFitNudge();
             }}
             style={{
-              transform: `scale(${fontScale})`,
+              // FIX kbfocus: com teclado do sistema aberto (kbInset), sobe o
+              // conteúdo para que o rodapé do TUI (input + faixa verde) fique
+              // logo acima da barra de teclas — chat visível de topo a base.
+              transform: `translateY(-${Math.max(0, kbInset - 128)}px) scale(${fontScale})`,
               transformOrigin: "top left",
               width: `${100 / fontScale}%`,
               height: `${100 / fontScale}%`,
