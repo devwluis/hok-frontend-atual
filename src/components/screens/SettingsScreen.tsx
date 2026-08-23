@@ -19,7 +19,21 @@ const SETTINGS_KEY = "hokma.settings.v1";
 export const TERMINAL_THEME_KEY = "hokma.terminal.theme.v1";
 export const TERMINAL_THEME_EVENT = "hokma:terminal-theme";
 export const TERMINAL_THEMES: Record<string, { name: string; colors: string[]; theme: Record<string, string> }> = {
-  // TESTE 2 — paletas Termius-like e High Contrast
+  // PARTE 3 — 3 paletas, HOK Dark como identidade da marca (âmbar --amber
+  // do app: #F59E0B no escuro). ANSI com tendência quente sem perder a
+  // diferenciação funcional (git diff vermelho/verde continuam claros).
+  dark: {
+    name: "HOK Dark",
+    colors: ["#0d0d0d", "#F59E0B", "#F59E0B", "#f87171"],
+    theme: {
+      background: "#0d0d0d", foreground: "#F59E0B", cursor: "#F59E0B", cursorAccent: "#0d0d0d",
+      selectionBackground: "#F59E0B33",
+      black: "#0d0d0d", red: "#f87171", green: "#4ade80", yellow: "#fbbf24",
+      blue: "#60a5fa", magenta: "#c084fc", cyan: "#22d3ee", white: "#e5e7eb",
+      brightBlack: "#78716c", brightRed: "#fca5a5", brightGreen: "#86efac", brightYellow: "#fcd34d",
+      brightBlue: "#93c5fd", brightMagenta: "#d8b4fe", brightCyan: "#67e8f9", brightWhite: "#fffbeb",
+    },
+  },
   termius: {
     name: "Termius-like",
     colors: ["#011627", "#d6deeb", "#ffcb8b", "#ef5350"],
@@ -40,39 +54,6 @@ export const TERMINAL_THEMES: Record<string, { name: string; colors: string[]; t
       blue: "#3080ff", magenta: "#ff30ff", cyan: "#30ffff", white: "#ffffff",
       brightBlack: "#909090", brightRed: "#ff5050", brightGreen: "#50ff50", brightYellow: "#ffff50",
       brightBlue: "#60b0ff", brightMagenta: "#ff60ff", brightCyan: "#50ffff", brightWhite: "#ffffff",
-    },
-  },
-  dark: {
-    name: "HOK Dark",
-    colors: ["#0d1117", "#6ee7b7", "#34d399", "#f87171"],
-    theme: {
-      background: "#0d1117", foreground: "#6ee7b7", cursor: "#34d399", cursorAccent: "#0d1117",
-      selectionBackground: "#34d39933", black: "#0d1117", red: "#f87171", green: "#34d399", yellow: "#f5b942",
-      blue: "#60a5fa", magenta: "#a78bfa", cyan: "#22d3ee", white: "#e5e7eb",
-      brightBlack: "#4b5563", brightRed: "#f87171", brightGreen: "#6ee7b7", brightYellow: "#fde68a",
-      brightBlue: "#93c5fd", brightMagenta: "#c4b5fd", brightCyan: "#67e8f9", brightWhite: "#ffffff",
-    },
-  },
-  solarized: {
-    name: "Solarized Dark",
-    colors: ["#002b36", "#93a1a1", "#b58900", "#dc322f"],
-    theme: {
-      background: "#002b36", foreground: "#93a1a1", cursor: "#b58900", cursorAccent: "#002b36",
-      selectionBackground: "#07364299", black: "#073642", red: "#dc322f", green: "#859900", yellow: "#b58900",
-      blue: "#268bd2", magenta: "#d33682", cyan: "#2aa198", white: "#eee8d5",
-      brightBlack: "#586e75", brightRed: "#cb4b16", brightGreen: "#859900", brightYellow: "#b58900",
-      brightBlue: "#268bd2", brightMagenta: "#6c71c4", brightCyan: "#2aa198", brightWhite: "#fdf6e3",
-    },
-  },
-  contrast: {
-    name: "Alto Contraste",
-    colors: ["#000000", "#ffffff", "#00ff00", "#ff4444"],
-    theme: {
-      background: "#000000", foreground: "#ffffff", cursor: "#00ff00", cursorAccent: "#000000",
-      selectionBackground: "#ffffff33", black: "#000000", red: "#ff4444", green: "#44ff44", yellow: "#ffff44",
-      blue: "#4488ff", magenta: "#ff44ff", cyan: "#44ffff", white: "#ffffff",
-      brightBlack: "#666666", brightRed: "#ff6666", brightGreen: "#66ff66", brightYellow: "#ffff66",
-      brightBlue: "#66aaff", brightMagenta: "#ff66ff", brightCyan: "#66ffff", brightWhite: "#ffffff",
     },
   },
 };
