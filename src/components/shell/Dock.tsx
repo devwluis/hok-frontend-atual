@@ -18,10 +18,19 @@ const ITEMS = [
 ] as const;
 
 export function Dock() {
-  const { screen, setScreen } = useAppState();
+  const { screen, setScreen, keyboardOpen } = useAppState();
+  // FIX kbhide (23/08): oculto enquanto o teclado do sistema está aberto na
+  // tela Terminal — não sobrepor a barra de teclas especiais. Volta quando
+  // o teclado fecha (visualViewport dispara e o estado global reseta).
+  const oculto = keyboardOpen && screen === "terminal";
 
   return (
-    <div className="pointer-events-none fixed bottom-4 left-1/2 z-[100] -translate-x-1/2">
+    <div
+      className={cn(
+        "pointer-events-none fixed left-1/2 z-[100] -translate-x-1/2 transition-all duration-200",
+        oculto ? "bottom-[-96px] opacity-0" : "bottom-4 opacity-100",
+      )}
+    >
       <motion.div
         initial={{ y: 80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}

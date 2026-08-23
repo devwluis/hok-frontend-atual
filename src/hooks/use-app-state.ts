@@ -9,5 +9,6 @@ export function useAppState() {
     toggleDrawer: (v?: boolean) => appStore.set({ drawerOpen: v ?? !appStore.get().drawerOpen }),
     toggleSettings: (v?: boolean) => appStore.set({ settingsOpen: v ?? !appStore.get().settingsOpen }),
     setConversationId: (conversationId: string | null) => appStore.set({ conversationId }),
+    setKeyboardOpen: (keyboardOpen: boolean) => appStore.set({ keyboardOpen }),
   };
 }
