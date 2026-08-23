@@ -121,6 +121,15 @@ export function TerminalTTYDScreen() {
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const aliveRef = useRef(true);
+  // FIX reconexão (23/08): URL mais recente do ttyd (token fresco) + nonce
+  // que força remontagem do iframe na recuperação, sem tocar em sessão sadia.
+  const urlRef = useRef<string | null>(null);
+  const committedRef = useRef(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const [recovering, setRecovering] = useState(false);
+  const attemptsRef = useRef(0);
+  const recoverTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const hiddenAtRef = useRef<number | null>(null);
 
   const [, forceTick] = useState(0);
   const rerender = useCallback(() => forceTick((n) => n + 1), []);
@@ -185,7 +194,14 @@ export function TerminalTTYDScreen() {
     if (!res.ok) throw new Error(`token indisponível (${res.status})`);
     const j = (await res.json()) as { terminal_url?: string; expires_in?: number };
     if (!j.terminal_url) throw new Error("resposta sem terminal_url");
-    if (aliveRef.current) setUrl(j.terminal_url);
+    // FIX reconexão (23/08): renovação SILÊNCIOSA — guarda a URL mais recente
+    // em ref (usada ao recarregar o iframe na recuperação, com token fresco),
+    // sem remontar o iframe a cada ciclo de ~4min.
+    urlRef.current = j.terminal_url;
+    if (aliveRef.current && !committedRef.current) {
+      committedRef.current = true;
+      setUrl(j.terminal_url);
+    }
     return typeof j.expires_in === "number" ? j.expires_in : 300;
   }, []);
 
@@ -226,6 +242,70 @@ export function TerminalTTYDScreen() {
       return "";
     }
   })() : "";
+
+  // ── FIX reconexão automática (23/08, item 4) ───────────────────────────
+  // O overlay "Press to Reconnect" é INTERNO do iframe cross-origin (inalcançá-
+  // vel). Recuperação pelo PAI: sondas de saúde no backend com backoff exponen-
+  // tial (1s→10s) e remontagem do iframe (reattach tmux preserva a tela) quando
+  // a rede volta. Gatilhos: evento 'online' e retorno de visibilidade (>10s).
+  const probeHealth = useCallback(async (): Promise<boolean> => {
+    const base = serverBase;
+    if (!base) return false;
+    try {
+      // 200 (válido) ou 401 (expirado mas servidor respondeu) = alcançável.
+      const res = await fetch(`${base}/terminal/token/validate?token=${encodeURIComponent(tokQ)}`, {
+        method: "GET",
+      });
+      return res.ok || res.status === 401;
+    } catch {
+      return false;
+    }
+  }, [serverBase, tokQ]);
+
+  useEffect(() => {
+    if (!recovering) return;
+    let cancelled = false;
+    const attempt = async () => {
+      if (cancelled) return;
+      const ok = await probeHealth();
+      if (cancelled) return;
+      if (ok) {
+        attemptsRef.current = 0;
+        setReloadNonce((n) => n + 1); // remonta iframe → WS novo → reattach tmux
+        return; // chip some no onLoad do iframe
+      }
+      attemptsRef.current += 1;
+      const delay = Math.min(1000 * 2 ** attemptsRef.current, 10_000);
+      recoverTimerRef.current = setTimeout(attempt, delay);
+    };
+    void attempt();
+    return () => {
+      cancelled = true;
+      if (recoverTimerRef.current) clearTimeout(recoverTimerRef.current);
+    };
+  }, [recovering, probeHealth]);
+
+  useEffect(() => {
+    const startRecovery = () => setRecovering(true);
+    const onOnline = () => startRecovery();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
+      const gone = hiddenAtRef.current ? Date.now() - hiddenAtRef.current : 0;
+      hiddenAtRef.current = null;
+      // Voltou pra visible após >10s em background (app suspenso/rede trocada):
+      // recupera. Retornos curtos (troca de aba normal) NÃO recarregam.
+      if (gone > 10_000) startRecovery();
+    };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   // TESTE C — abas com sessões tmux individuais (persistidas)
   const [tabs, setTabs] = useState<TabsState>(loadTabs);
@@ -432,14 +512,28 @@ export function TerminalTTYDScreen() {
         className="relative min-h-0 flex-1 overflow-hidden bg-black"
         style={{ paddingBottom: keysReservePx(keysExpanded, extraGroup) }}
       >
+        {recovering && (
+          <div
+            data-testid="term-recovering"
+            className="absolute right-2 top-2 flex items-center gap-1.5 rounded-full border border-amber-400/50 bg-[#0b1626]/90 px-2.5 py-1 text-[10px] font-semibold text-amber-300 shadow-lg backdrop-blur-sm"
+            style={{ zIndex: SHELL_Z.terminalRecovery }}
+          >
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+            Reconectando…
+          </div>
+        )}
         {err ? (
           <div className="p-3 text-[11px] text-red-300">⚠️ {err}</div>
         ) : url ? (
           <iframe
-            key={`${url}|${activeId}`}
-            src={`${url}&arg=${encodeURIComponent(activeId)}`}
+            key={`${url}|${activeId}|${reloadNonce}`}
+            src={`${urlRef.current ?? url}&arg=${encodeURIComponent(activeId)}`}
             title="Terminal HOK"
             className="h-full w-full border-0 bg-black"
+            onLoad={() => {
+              setRecovering(false);
+              attemptsRef.current = 0;
+            }}
             style={{
               transform: `scale(${fontScale})`,
               transformOrigin: "top left",
