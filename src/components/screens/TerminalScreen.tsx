@@ -1,6 +1,6 @@
 "use client";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw, FileText, Loader2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Copy, Check, ListChecks, ClipboardPaste } from "lucide-react";
+import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw, FileText, Loader2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Copy, Check, ListChecks, ClipboardPaste, Palette, ZoomIn, ZoomOut } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -9,6 +9,18 @@ import { useTerminal } from "@/hooks/use-terminal";
 import { TERMINAL_THEMES, TERMINAL_THEME_KEY, TERMINAL_THEME_EVENT, readTerminalTheme } from "./SettingsScreen";
 
 const TERMINAL_STATE_KEY = "hokma.terminal.state.v1";
+// Lote 2 — zoom de fonte persistido + ciclo rápido de temas na barra
+const TERMINAL_FONT_KEY = "hokma.terminal.fontSize.v1";
+const FONT_MIN = 8;
+const FONT_MAX = 22;
+
+function readTerminalFontSize(): number {
+  try {
+    const n = Number(localStorage.getItem(TERMINAL_FONT_KEY));
+    if (Number.isFinite(n) && n >= FONT_MIN && n <= FONT_MAX) return n;
+  } catch { /* ignore */ }
+  return 12.5;
+}
 const HISTORY_MAX = 200;
 
 type TerminalState = { activeSessionId: string; history: string[]; updatedAt: string };
@@ -185,6 +197,13 @@ const LOG_MAX_CHARS = 400_000;
 // map do módulo (sobrevive ao desmonte do componente) tabId -> viewportY.
 const savedScrollY = new Map<string, number>();
 
+// LOTE 3 — modo trackpad de setas (compartilhado entre barra [pai] e corpo
+// do terminal [filho] via objeto de módulo; refs não cruzam componentes).
+const arrowsTrackpad = { on: false };
+function arrowsTrackpadOn(): boolean {
+  return arrowsTrackpad.on;
+}
+
 // Mapeia tecla única (do teclado do sistema) para o código de controle Ctrl+<tecla>
 function ctrlCode(data: string): string | null {
   if (data.length !== 1) return null;
@@ -226,6 +245,7 @@ export type TerminalTabBodyHandle = {
   focus: () => void;
   openLog: () => void;
   copyAll: () => Promise<boolean>;
+  getTerm: () => Terminal | null;
 };
 
 const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(function TerminalTabBody(
@@ -307,7 +327,7 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
 
     const savedTheme = TERMINAL_THEMES[readTerminalTheme()] ?? TERMINAL_THEMES.dark;
     const term = new Terminal({
-      fontSize: 12.5,
+      fontSize: readTerminalFontSize(),
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
       cursorBlink: true,
       scrollback: 10000,
@@ -773,6 +793,7 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
     focus: () => { try { termRef.current?.textarea?.focus(); } catch { /* ignore */ } },
     openLog: () => { showLogRef.current = true; setShowLog(true); },
     copyAll: () => handleCopyAll(),
+    getTerm: () => termRef.current,
   }), []);
 
   // ── Scrollbar customizada real (buffer de 10000 linhas) ──
@@ -921,6 +942,7 @@ export function TerminalScreen() {
   const [vvHeight, setVvHeight] = useState<number | null>(null);
   // FIX 21/08 — botão fixo "Copiar tudo" (scrollback inteiro) no header
   const [copiedAll, setCopiedAll] = useState(false);
+  const [fontPx, setFontPx] = useState(() => readTerminalFontSize());
   const copyAllTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onCopyAll = async () => {
     const ok = await bodyRefs.current.get(activeTabId)?.copyAll();
@@ -980,6 +1002,32 @@ export function TerminalScreen() {
     setArmed(next);
     refocusTerminal();
   };
+  // ── Lote 2: zoom de fonte (tempo real + persistência) e ciclo de temas ──
+  const activeTerm = useCallback(
+    () => bodyRefs.current.get(activeTabId)?.getTerm() ?? null,
+    [activeTabId],
+  );
+
+  const changeFontSize = useCallback((delta: number) => {
+    const t = activeTerm();
+    if (!t) return;
+    const cur = t.options.fontSize as number ?? 12.5;
+    const next = Math.max(FONT_MIN, Math.min(FONT_MAX, cur + delta));
+    if (next === cur) return;
+    t.options.fontSize = next;
+    try { localStorage.setItem(TERMINAL_FONT_KEY, String(next)); } catch { /* noop */ }
+    setFontPx(next);
+  }, []);
+
+  const cycleTheme = useCallback(() => {
+    const keys = Object.keys(TERMINAL_THEMES);
+    const idx = keys.indexOf(readTerminalTheme());
+    const next = keys[(idx + 1) % keys.length] ?? "dark";
+    try { localStorage.setItem(TERMINAL_THEME_KEY, next); } catch { /* noop */ }
+    const t = activeTerm();
+    if (t) t.options.theme = { ...TERMINAL_THEMES[next].theme };
+    window.dispatchEvent(new CustomEvent(TERMINAL_THEME_EVENT, { detail: { theme: next } }));
+  }, [activeTerm]);
   const pressCtrl = () => toggleMod("ctrl");
   const pressAlt = () => toggleMod("alt");
   const pressCtrlC = () => { clearMods(); writeActive("\x03"); };
@@ -1061,6 +1109,19 @@ export function TerminalScreen() {
           <button onClick={onCopyAll} title="Copiar tudo (scrollback inteiro)" data-testid="term-copy-all"
             className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
             {copiedAll ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          </button>
+          {/* Lote 2 — zoom da fonte (persistido) */}
+          <div className="flex items-center gap-0.5 rounded-md border border-emerald-900/50 bg-emerald-500/5 px-0.5" data-testid="term-zoom">
+            <button onClick={() => changeFontSize(-1)} title="Diminuir fonte" data-testid="zoom-out"
+              className="p-0.5 text-emerald-300 hover:bg-emerald-500/10"><ZoomOut className="h-3 w-3" /></button>
+            <span className="min-w-[24px] text-center text-[9px] text-emerald-300/70">{fontPx}px</span>
+            <button onClick={() => changeFontSize(1)} title="Aumentar fonte" data-testid="zoom-in"
+              className="p-0.5 text-emerald-300 hover:bg-emerald-500/10"><ZoomIn className="h-3 w-3" /></button>
+          </div>
+          {/* Lote 2 — ciclo de temas (HOK Dark → Termius-like → High Contrast) */}
+          <button onClick={cycleTheme} title={`Tema: ${TERMINAL_THEMES[readTerminalTheme()]?.name ?? "Dark"} (clique para trocar)`}
+            data-testid="term-theme" className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
+            <Palette className="h-3.5 w-3.5" />
           </button>
           <button onClick={() => bodyRefs.current.get(activeTabId)?.openLog()} title="Ver contexto completo (modo leitura)"
             className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
