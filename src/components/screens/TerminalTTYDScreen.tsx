@@ -1,12 +1,50 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command } from "lucide-react";
+import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx } from "@/lib/shell-layers";
 import { TERMINAL_THEMES, readTerminalTheme } from "./SettingsScreen";
 
 const RENEW_MARGIN_S = 60;
 const RETRY_ERR_MS = 10_000;
+
+// PARTE 4 — KeyButton do redesign (estética 3D, cores via CSS vars --hok-*).
+// Mesmo transporte de sempre: onClick → POST /terminal/ttyd/key.
+function KeyButton({
+  label,
+  active = false,
+  wide = false,
+  onClick,
+  testid,
+}: {
+  label: React.ReactNode;
+  active?: boolean;
+  wide?: boolean;
+  onClick: () => void;
+  testid?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      data-testid={testid}
+      className={`flex h-9 shrink-0 select-none items-center justify-center rounded-md border px-3 text-[11px] font-semibold tracking-[0.01em] transition-transform duration-150 active:scale-[0.96] ${
+        wide ? "min-w-[82px]" : "min-w-[42px]"
+      }`}
+      style={{
+        color: active ? "var(--hok-bg)" : "var(--hok-ink)",
+        background: active ? "var(--hok-accent)" : "var(--hok-key)",
+        borderColor: active ? "var(--hok-accent)" : "var(--hok-line)",
+        boxShadow: active
+          ? "0 2px 0 color-mix(in srgb, var(--hok-accent) 56%, #000)"
+          : "0 2px 0 color-mix(in srgb, var(--hok-line) 65%, #000)",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
 
 // ── TESTE 1 — teclado estendido sobre ttyd ──────────────────────────────
 // As teclas NÃO entram pelo iframe (cross-origin): são injetadas na sessão
@@ -816,101 +854,59 @@ export function TerminalTTYDScreen() {
       ) : (
       <div
         data-testid="ov-bar"
-        className="absolute left-0 right-0 bg-[#0b1626] px-1 py-1"
-        style={{ zIndex: SHELL_Z.keysBarExpanded, bottom: aboveDock(kbInset) }}
+        className="absolute left-0 right-0 rounded-t-xl border border-b-0 px-2 pb-2 pt-2"
+        style={{
+          zIndex: SHELL_Z.keysBarExpanded,
+          bottom: aboveDock(kbInset),
+          background: "color-mix(in srgb, var(--hok-panel) 96%, transparent)",
+          borderColor: "var(--hok-line)",
+          boxShadow: "0 -8px 30px rgba(0,0,0,.16)",
+          backdropFilter: "blur(12px)",
+        }}
       >
         {/* GRUPO EXTRA "..." — Alt, Tab/Space/⌫/⏎, Home/End/PgUp/PgDn/Ins/Del,
             símbolos, F1-F12 e sequências ^W ^R ^X ^D ^C ^L ^S ^Z */}
-        <div data-testid="ov-extra-group" className={"thin-scroll mb-1 flex w-max items-center gap-1 overflow-x-auto " + (extraGroup ? "" : "hidden")} style={{ WebkitOverflowScrolling: "touch" }}>
-          <button type="button" data-testid="ov-sticky-alt"
-            onClick={() => toggleSticky("alt")}
-            title="Alt pegajoso (combina com a próxima tecla)"
-            className={cn(
-              "flex h-9 min-w-[44px] shrink-0 select-none items-center justify-center rounded-lg border px-2 text-[11px] font-semibold",
-              sticky.alt
-                ? "border-emerald-300 bg-emerald-400/20 text-emerald-200"
-                : "border-sky-800/50 bg-sky-500/5 text-sky-300",
-            )}>
-            Alt
-          </button>
+        <div data-testid="ov-extra-group" className={"thin-scroll mb-2 flex w-max items-center gap-1.5 overflow-x-auto border-b pb-2 " + (extraGroup ? "" : "hidden")} style={{ WebkitOverflowScrolling: "touch", borderColor: "var(--hok-line)" }}>
+          <KeyButton label="Alt" active={sticky.alt} testid="ov-sticky-alt" onClick={() => toggleSticky("alt")} />
           {NAV_EXTRA.map((xk) => (
-            <button key={xk.label} type="button" data-testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)}
-              className="flex h-9 min-w-[38px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[11px] text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
-              {xk.label}
-            </button>
+            <KeyButton key={xk.label} label={xk.label} testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)} />
           ))}
-          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
           {EDIT_EXTRA.map((xk) => (
-            <button key={xk.label} type="button" data-testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)}
-              className="flex h-9 min-w-[38px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[11px] text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
-              {xk.label}
-            </button>
+            <KeyButton key={xk.label} label={xk.label} wide={xk.label.length > 3} testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)} />
           ))}
-          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
           {FN_KEYS.map((xk) => (
-            <button key={xk.label} type="button" data-testid={`ov-fn-${xk.label}`} onClick={() => pressXKey(xk)}
-              className="flex h-9 min-w-[34px] shrink-0 select-none items-center justify-center rounded-lg border border-sky-800/50 bg-sky-500/5 px-1.5 text-[10px] font-mono text-sky-300 active:bg-sky-400 active:text-emerald-950">
-              {xk.label}
-            </button>
+            <KeyButton key={xk.label} label={xk.label} testid={`ov-fn-${xk.label}`} onClick={() => pressXKey(xk)} />
           ))}
-          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
           {SYM_CHARS.map((s, i) => (
-            <button key={`sym-${i}`} type="button" data-testid={`ov-sym-${i}`}
-              onClick={() => void sendToKeys({ text: s })}
-              className="flex h-9 min-w-[32px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[13px] text-emerald-200 active:bg-emerald-400 active:text-emerald-950">
-              {s}
-            </button>
+            <KeyButton key={`sym-${i}`} label={s} testid={`ov-sym-${i}`} onClick={() => void sendToKeys({ text: s })} />
           ))}
-          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
           {COMBO_KEYS.map((xk) => (
-            <button key={xk.tid ?? xk.label} type="button" data-testid={`ov-combo-${xk.tid}`} onClick={() => pressXKey(xk)}
-              className="flex h-9 min-w-[36px] shrink-0 select-none items-center justify-center rounded-lg border border-red-800/50 bg-red-500/5 px-2 text-[10px] font-mono text-red-300 active:bg-red-400 active:text-emerald-950">
-              {xk.label}
-            </button>
+            <KeyButton key={xk.tid ?? xk.label} label={xk.label} wide testid={`ov-combo-${xk.tid}`} onClick={() => pressXKey(xk)} />
           ))}
         </div>
-        {/* LINHA SEMPRE VISÍVEL (compacta): Ctrl · Esc · setas · S-Tab · "..." */}
-        <div className="thin-scroll flex w-max items-center gap-1 overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
+        {/* LINHA SEMPRE VISÍVEL (compacta): recolher · Ctrl · Esc · setas · S-Tab · "..." */}
+        <div className="thin-scroll flex w-max items-center gap-1.5 overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
           <button type="button" data-testid="ov-collapse"
             onClick={toggleKeysBar}
             title="Minimizar: voltar ao ícone compacto (terminal ocupa o máximo)"
-            className="relative flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-lg border border-red-800/60 bg-red-500/10 text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
+            className="flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-md border transition-colors hover:bg-white/10"
+            style={{ borderColor: "var(--hok-line)", color: "var(--hok-muted)" }}>
             <Minimize2 className="h-4 w-4" />
           </button>
-          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
-          <button type="button" data-testid="ov-sticky-ctrl"
-            onClick={() => toggleSticky("ctrl")}
-            title="Ctrl pegajoso (combina com a próxima tecla)"
-            className={cn(
-              "flex h-9 min-w-[44px] shrink-0 select-none items-center justify-center rounded-lg border px-2 text-[11px] font-semibold",
-              sticky.ctrl
-                ? "border-red-300 bg-red-400/20 text-red-200"
-                : "border-red-800/50 bg-red-500/5 text-red-300",
-            )}>
-            Ctrl
-          </button>
+          <KeyButton label="Ctrl" active={sticky.ctrl} testid="ov-sticky-ctrl" onClick={() => toggleSticky("ctrl")} />
           {[k("Esc", "Escape")].map((xk) => (
-            <button key={xk.label} type="button" data-testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)}
-              className="flex h-9 min-w-[38px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[12px] text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
-              {xk.label}
-            </button>
+            <KeyButton key={xk.label} label={xk.label} testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)} />
           ))}
           {ROW_KEYS.map((xk) => (
-            <button key={xk.tid ?? xk.label} type="button" data-testid={`ov-key-${xk.tid ?? xk.label}`} onClick={() => pressXKey(xk)}
-              className="flex h-9 min-w-[36px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-1.5 text-[13px] text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
-              {xk.label}
-            </button>
+            <KeyButton key={xk.tid ?? xk.label} label={xk.label} wide={xk.label.length > 3} testid={`ov-key-${xk.tid ?? xk.label}`} onClick={() => pressXKey(xk)} />
           ))}
-          <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
-          {/* "..." alterna o grupo extra */}
           <button type="button" data-testid="ov-more"
+            aria-expanded={extraGroup}
             onClick={() => setExtraGroup((v) => !v)}
             title="Mais teclas (Alt, Tab, Ins/Del, Home/Pg, símbolos, F1-F12, ^combos)"
-            className={cn(
-              "flex h-9 min-w-[44px] shrink-0 select-none items-center justify-center rounded-lg border px-2 text-[14px] font-bold tracking-widest",
-              extraGroup ? "border-emerald-300 bg-emerald-400/20 text-emerald-200" : "border-emerald-900/50 bg-emerald-500/5 text-emerald-300",
-            )}>
-            ····
+            className="ml-auto flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-md border transition-colors hover:bg-white/10"
+            style={{ borderColor: extraGroup ? "var(--hok-accent-soft)" : "var(--hok-line)", color: extraGroup ? "var(--hok-accent)" : "var(--hok-muted)" }}>
+            <MoreHorizontal size={16} />
           </button>
         </div>
       </div>
