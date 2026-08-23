@@ -150,6 +150,15 @@
 .thin-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
 .thin-scroll::-webkit-scrollbar-track { background: transparent; }
 
+/* FIX toque (23/08): elimina o double-tap-zoom que engolia o 2º toque rápido
+   nos controles do terminal — causa do toggle do teclado "funcionar só uma
+   vez" e de teclas repetidas (---, >>>) perderem cliques. Escopado via
+   [data-term-ui] na raiz da tela do terminal. */
+[data-term-ui] button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* ── Tipografia das mensagens: hierarquia visual (UX 16/08) ── */
 .markdown-body {
   font-size: 15px;
