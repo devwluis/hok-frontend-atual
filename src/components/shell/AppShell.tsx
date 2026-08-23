@@ -31,7 +31,10 @@ const SCREENS: Record<string, { render: () => ReactNode }> = {
   // (7d6ee03) + flapping corrigido (21732d5) + gate TUI tmux-aware (76b70cf).
   // ttyd permanece como fallback (hok-terminal.service ativo; remapear para
   // TerminalTTYDScreen reverte instantaneamente).
-  terminal: { render: () => <TerminalScreen /> },
+  // DECISÃO FINAL (23/08): ttyd definitivo na aba "terminal" — estável em
+  // produção; scroll oscilante persistiu no custom mesmo sem os lotes.
+  // O xterm in-app (TerminalScreen) permanece versionado como rollback.
+  terminal: { render: () => <TerminalTTYDScreen /> },
   n8n: { render: () => <N8NScreen /> },
   brain: { render: () => <BrainScreen /> },
   models: { render: () => <ModelsScreen /> },
