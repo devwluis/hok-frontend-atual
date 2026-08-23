@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx } from "@/lib/shell-layers";
+import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx, DOCK_CLEAR_PX } from "@/lib/shell-layers";
 import { TERMINAL_THEMES, readTerminalTheme } from "./SettingsScreen";
 
 const RENEW_MARGIN_S = 60;
@@ -211,9 +211,6 @@ export function TerminalTTYDScreen() {
   // mobile abre — usamos window.visualViewport (área REALMENTE visível) para
   // reposicionar a barra colada no topo do teclado, subindo/descendo junto.
   const [kbInset, setKbInset] = useState(0);
-  // Encolhimento do iframe com teclado aberto — fórmula centralizada em
-  // shell-layers.ts (keyboardShiftPx): rodapé do TUI pousa acima da barra.
-  const kbShift = keyboardShiftPx(kbInset);
 
   // TESTE minimizável estilo Termius: ícone compacto ↔ barra completa.
   // Preferência persistida.
@@ -237,6 +234,11 @@ export function TerminalTTYDScreen() {
       return nv;
     });
   }, [focusTerminalInput]);
+  // Encolhimento do iframe com teclado aberto — fórmula centralizada em
+  // shell-layers.ts (keyboardShiftPx): expandida → rodapé acima da barra;
+  // minimizada → faixa verde COLADA ao topo do teclado (zero vão).
+  const kbShift = keyboardShiftPx(kbInset, keysExpanded);
+
   const [extraGroup, setExtraGroup] = useState(false);
   useEffect(() => () => {
     nudgeTimersRef.current.forEach(clearTimeout);
@@ -893,7 +895,7 @@ export function TerminalTTYDScreen() {
       {!keysExpanded ? (
         <div
           className="absolute left-0 right-0 flex justify-end px-2 transition-[bottom] duration-150"
-          style={{ zIndex: SHELL_Z.keysBarMinimized, bottom: aboveDock(kbInset) }}
+          style={{ zIndex: SHELL_Z.keysBarMinimized, bottom: kbInset > 0 ? kbInset + 24 : DOCK_CLEAR_PX }}
         >
           {/* PARTE 7 — ícone minimizado com o visual do mockup (painel +
               borda âmbar + dot tmux + shadow profundo), semântica Maximize2

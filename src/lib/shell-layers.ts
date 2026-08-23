@@ -91,10 +91,19 @@ export const keysReservePx = (expanded: boolean, extraGroup: boolean): number =>
 // scrollback intacto no topo e a caixa de digitação pousando logo acima da
 // barra. Derivado das constantes acima (zero número mágico no componente):
 // o rodapé do iframe deve pousar em kbInset + barra + respiro mínimo.
+// FIX kbfocus v3 (23/08, retificação do usuário): com o teclado do sistema
+// aberto NÃO há vão — tudo grudado: teclado → [barra de teclas, se expandida]
+// → faixa verde → conteúdo. O iframe encolhe exatamente o necessário:
+//   expandida:  rodapé do iframe = kbInset + barra(48) + respiro(2)
+//   minimizada: rodapé do iframe = kbInset + buffer(4) — faixa COLADA no
+//               teclado (o ícone compacto flutua acima da faixa, no componente)
 const BAR_TOP_GAP_PX = 2;
-export const keyboardShiftPx = (kbInset: number): number => {
+const FAIXA_KEYBOARD_BUFFER_PX = 4;
+export const keyboardShiftPx = (kbInset: number, expanded: boolean): number => {
   if (kbInset <= 0) return 0;
-  const reserve = keysReservePx(true, false); // estado expandido é o caso do teclado
-  const desiredBottomFromKeyboardTop = KEYS_BAR_ROW_PX + BAR_TOP_GAP_PX;
-  return Math.max(0, kbInset + desiredBottomFromKeyboardTop - reserve);
+  const desiredBottom = expanded
+    ? kbInset + KEYS_BAR_ROW_PX + BAR_TOP_GAP_PX
+    : kbInset + FAIXA_KEYBOARD_BUFFER_PX;
+  const reserve = keysReservePx(expanded, false);
+  return Math.max(0, desiredBottom - reserve);
 };
