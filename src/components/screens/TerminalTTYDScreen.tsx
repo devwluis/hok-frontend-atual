@@ -10,15 +10,16 @@ const RETRY_ERR_MS = 10_000;
 // As teclas NÃO entram pelo iframe (cross-origin): são injetadas na sessão
 // tmux "hok-ttyd" via POST /terminal/ttyd/key (tmux send-keys no backend),
 // e o client ttyd anexado exibe em tempo real. Sticky Ctrl/Alt combinam com
-// teclas nomeadas ("C-Left", "M-Right"); símbolos vão literais (-l).
+// teclas nomeadas ("C-Left", "M-Up"); símbolos vão literais (-l).
 type XKey = {
   label: string;
   tid?: string;
   send: () => { key?: string; text?: string };
 };
 
+let sticky = { ctrl: false, alt: false }; // espelhado em state p/ visual
+
 function applyMods(label: string, name: string): { key?: string; text?: string } {
-  // mods sticky aplicam-se a teclas nomeadas (nav/fn); demais: literal
   if (sticky.ctrl && !/^F\d+$/.test(label)) {
     if (/^(Up|Down|Left|Right|Space|Enter|BSpace|Tab|Delete|Insert)$/.test(name))
       return { key: "C-" + name };
@@ -32,10 +33,9 @@ function applyMods(label: string, name: string): { key?: string; text?: string }
 
 const k = (label: string, name: string): XKey => ({
   label,
+  tid: name,
   send: () => applyMods(label, name),
 });
-
-let sticky = { ctrl: false, alt: false }; // espelhado em state p/ visual
 
 const NAV_KEYS: XKey[] = [
   k("↑", "Up"), k("↓", "Down"), k("←", "Left"), k("→", "Right"),
@@ -59,6 +59,8 @@ const FN_KEYS: XKey[] = [
 ];
 const SYM_CHARS = ["|", "\\", "?", "-", ":", ";", "!", "~", "@", "$", "*", "^", "%", "=", "`", "<", ">", "(", ")", "{", "}", "[", "]"];
 
+const KEYS_BAR_H = 46; // altura da barra de teclas (px) — reserva do iframe
+
 export function TerminalTTYDScreen() {
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -66,6 +68,32 @@ export function TerminalTTYDScreen() {
 
   const [, forceTick] = useState(0);
   const rerender = useCallback(() => forceTick((n) => n + 1), []);
+
+  // FIX ancoragem ao teclado: o layout viewport NÃO encolhe quando o teclado
+  // mobile abre — usamos window.visualViewport (área REALMENTE visível) para
+  // reposicionar a barra colada no topo do teclado, subindo/descendo junto.
+  const [kbInset, setKbInset] = useState(0);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) {
+      setKbInset(0);
+      return;
+    }
+    const onVV = () => {
+      const inset = Math.max(
+        0,
+        Math.round(window.innerHeight - vv.height - (vv.offsetTop || 0)),
+      );
+      setKbInset(inset);
+    };
+    vv.addEventListener("resize", onVV);
+    vv.addEventListener("scroll", onVV);
+    onVV();
+    return () => {
+      vv.removeEventListener("resize", onVV);
+      vv.removeEventListener("scroll", onVV);
+    };
+  }, []);
 
   const fetchToken = useCallback(async (): Promise<number> => {
     const raw = localStorage.getItem("hokma.settings.v1");
@@ -121,7 +149,35 @@ export function TerminalTTYDScreen() {
     }
   })() : "";
 
-  // TESTE 2 — ciclo de temas aplicado à sessão ttyd viva (OSC 10/11/4 → tmux)
+  const sendToKeys = useCallback(
+    async (payload: { key?: string; text?: string }) => {
+      const qs = new URLSearchParams({ token: tokQ });
+      await fetch(`${serverBase}/terminal/ttyd/key?${qs}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).catch(() => {});
+    },
+    [serverBase, tokQ],
+  );
+
+  const pressXKey = (xk: XKey) => {
+    const payload = xk.send();
+    void sendToKeys(payload);
+    if (payload.key) {
+      if (sticky.ctrl || sticky.alt) {
+        sticky = { ctrl: false, alt: false };
+        rerender();
+      }
+    }
+  };
+
+  const toggleSticky = (mod: "ctrl" | "alt") => {
+    sticky = { ...sticky, [mod]: !sticky[mod] } as typeof sticky;
+    rerender();
+  };
+
+  // TESTE 2 — ciclo de temas aplicado À SESSÃO ttyd viva (OSC 10/11/4)
   const themeKeys = Object.keys(TERMINAL_THEMES);
   const [themeIdx, setThemeIdx] = useState(0);
   const themeName = themeKeys[themeIdx % themeKeys.length] ?? "HOK Dark";
@@ -168,35 +224,6 @@ export function TerminalTTYDScreen() {
     }).catch(() => {});
   }, [themeIdx, url, serverBase]);
 
-  const sendToKeys = useCallback(
-    async (payload: { key?: string; text?: string }) => {
-      const qs = new URLSearchParams({ token: tokQ });
-      await fetch(`${serverBase}/terminal/ttyd/key?${qs}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }).catch(() => {});
-    },
-    [serverBase, tokQ],
-  );
-
-  const pressXKey = (xk: XKey) => {
-    const payload = xk.send();
-    void sendToKeys(payload);
-    // consome sticky após uso em tecla nomeada
-    if (payload.key) {
-      if (sticky.ctrl || sticky.alt) {
-        sticky = { ctrl: false, alt: false };
-        rerender();
-      }
-    }
-  };
-
-  const toggleSticky = (mod: "ctrl" | "alt") => {
-    sticky = { ...sticky, [mod]: !sticky[mod] } as typeof sticky;
-    rerender();
-  };
-
   return (
     <div className="flex h-full w-full flex-col bg-[#011627] font-mono text-emerald-400">
       <div className="flex items-center justify-between border-b border-emerald-900/40 px-3 py-2 text-[11px]">
@@ -214,7 +241,10 @@ export function TerminalTTYDScreen() {
           </button>
         </div>
       </div>
-      <div className="relative min-h-0 flex-1 bg-black">
+      <div
+        className="relative min-h-0 flex-1 bg-black"
+        style={{ paddingBottom: KEYS_BAR_H }}
+      >
         {err ? (
           <div className="p-3 text-[11px] text-red-300">⚠️ {err}</div>
         ) : url ? (
@@ -229,8 +259,13 @@ export function TerminalTTYDScreen() {
           <div className="p-3 text-[11px] text-emerald-300/70">Carregando terminal…</div>
         )}
       </div>
-      {/* TESTE 1 — teclado estendido: injeta teclas via tmux send-keys */}
-      <div className="border-t border-emerald-900/40 bg-[#0b1626] px-1 py-1" data-testid="ov-bar">
+      {/* Barra de teclas ANCORADA AO TECLADO: fixed com bottom = kbInset
+          (visualViewport) — sobe/desce junto com o teclado do sistema. */}
+      <div
+        data-testid="ov-bar"
+        className="fixed left-0 right-0 z-40 border-t border-emerald-900/40 bg-[#0b1626] px-1 py-1"
+        style={{ bottom: kbInset }}
+      >
         <div className="thin-scroll flex w-max items-center gap-1 overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
           <button type="button" data-testid="ov-ctrl"
             onClick={() => toggleSticky("ctrl")}
