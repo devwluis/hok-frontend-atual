@@ -197,6 +197,7 @@ export function TerminalTTYDScreen() {
   const [extraGroup, setExtraGroup] = useState(false);
   useEffect(() => () => {
     nudgeTimersRef.current.forEach(clearTimeout);
+    if (sbHideTimer.current) clearTimeout(sbHideTimer.current);
   }, []);
   useEffect(() => {
     const vv = window.visualViewport;
@@ -456,6 +457,105 @@ export function TerminalTTYDScreen() {
     }).catch(() => {});
   }, [themeIdx, url, serverBase, activeSession]);
 
+  // ── TESTE D — scrollbar do scrollback (dirigida por tmux copy-mode) ────
+  // O buffer vive dentro do iframe cross-origin: a barra é um overlay nosso
+  // que comanda o tmux (posição REAL via #{scroll_position}/#{history_size}).
+  // Em apps TUI (alternate screen) history=0 → auto-oculta.
+  const [sb, setSb] = useState({ visible: false, ratio: 0, dragging: false, history: 0 });
+  const sbTrackRef = useRef<HTMLDivElement | null>(null);
+  const sbHideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const sbLastSent = useRef(0);
+  const sbDragHist = useRef(0);
+  const sbEnteredRef = useRef(false);
+
+  const sbApi = useCallback(
+    async (action: string, amount?: number): Promise<{ history: number; height: number; pos: number } | null> => {
+      try {
+        const res = await fetch(`${serverBase}/terminal/ttyd/scroll?token=${encodeURIComponent(tokQ)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session: activeSession, action, amount }),
+        });
+        if (!res.ok) return null;
+        return await res.json();
+      } catch {
+        return null;
+      }
+    },
+    [serverBase, tokQ, activeSession],
+  );
+
+  const sbBump = useCallback(() => {
+    setSb((s) => ({ ...s, visible: true }));
+    if (sbHideTimer.current) clearTimeout(sbHideTimer.current);
+    sbHideTimer.current = setTimeout(() => {
+      setSb((s) => (s.dragging ? s : { ...s, visible: false }));
+    }, 2200);
+  }, []);
+
+  const sbScrollTo = useCallback(
+    async (ratio: number) => {
+      const clamped = Math.min(1, Math.max(0, ratio));
+      setSb((s) => ({ ...s, ratio: clamped }));
+      const now = Date.now();
+      if (now - sbLastSent.current < 110) return; // throttle: ≤ ~9 cmd/s
+      sbLastSent.current = now;
+      if (clamped >= 0.97) {
+        await sbApi("top");
+        return;
+      }
+      if (clamped <= 0.03) {
+        await sbApi("bottom"); // exit copy-mode → volta ao vivo
+        return;
+      }
+      if (!sbEnteredRef.current) {
+        await sbApi("enter");
+        sbEnteredRef.current = true;
+      }
+      await sbApi("goto", Math.round((1 - clamped) * sbDragHist.current));
+    },
+    [sbApi],
+  );
+
+  const sbOnPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      void (async () => {
+        const info = await sbApi("info");
+        const hist = info?.history ?? 0;
+        if (hist < 5) return; // TUI/alternate screen: nada a rolar
+        sbDragHist.current = hist;
+        sbEnteredRef.current = false;
+        setSb((s) => ({ ...s, visible: true, dragging: true, history: hist }));
+        const rect = sbTrackRef.current?.getBoundingClientRect();
+        if (rect) void sbScrollTo(1 - (e.clientY - rect.top) / rect.height);
+      })();
+    },
+    [sbApi, sbScrollTo],
+  );
+
+  const sbOnPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!sb.dragging) return;
+      const rect = sbTrackRef.current?.getBoundingClientRect();
+      if (rect) void sbScrollTo(1 - (e.clientY - rect.top) / rect.height);
+    },
+    [sb.dragging, sbScrollTo],
+  );
+
+  const sbOnPointerUp = useCallback(() => {
+    setSb((s) => ({ ...s, dragging: false }));
+    void (async () => {
+      const info = await sbApi("info");
+      if (info && info.pos >= 0 && info.history > 0) {
+        setSb((s) => ({ ...s, ratio: 1 - info.pos / info.history }));
+      }
+    })();
+    sbBump();
+  }, [sbApi, sbBump]);
+
+  const sbThumbH = 48;
+
   // TESTE B — zoom persistido (escala visual do iframe; 1 = 100%)
   const [fontScale, setFontScale] = useState(readFontScale);
   const applyFontScale = useCallback((next: number) => {
@@ -560,6 +660,36 @@ export function TerminalTTYDScreen() {
             Reconectando…
           </div>
         )}
+        {/* TESTE D — scrollbar do scrollback: fina, auto-hide 2,2s, posição
+            real via tmux copy-mode. Arrastar = goto; fundo = volta ao vivo. */}
+        <div
+          ref={sbTrackRef}
+          data-testid="term-scrollbar"
+          className={cn(
+            "absolute inset-y-0 right-0 w-6 touch-none select-none transition-opacity duration-300",
+            sb.visible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+          )}
+          style={{ zIndex: SHELL_Z.terminalScrollbar }}
+          onPointerDown={sbOnPointerDown}
+          onPointerMove={sbOnPointerMove}
+          onPointerUp={sbOnPointerUp}
+          onPointerCancel={sbOnPointerUp}
+        >
+          <div className="absolute inset-y-1 right-1 w-[5px] rounded-full bg-emerald-900/40" />
+          <div
+            data-testid="term-scrollbar-thumb"
+            className="absolute right-0.5 w-[7px] rounded-full bg-emerald-400/60 shadow-[0_0_6px_rgb(16_185_129/0.4)]"
+            style={{
+              height: sbThumbH,
+              top: `calc(${(1 - sb.ratio) * 100}% - ${(1 - sb.ratio) * sbThumbH}px)`,
+            }}
+          />
+          {sb.dragging && (
+            <div className="absolute right-7 rounded-md border border-emerald-800/60 bg-[#0b1626]/90 px-1.5 py-0.5 text-[9px] font-mono text-emerald-300">
+              {Math.round((1 - sb.ratio) * 100)}%
+            </div>
+          )}
+        </div>
         {err ? (
           <div className="p-3 text-[11px] text-red-300">⚠️ {err}</div>
         ) : url ? (

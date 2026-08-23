@@ -19,6 +19,8 @@ export const SHELL_Z = {
   terminalContent: 30,
   /** Faixa de abas das sessões (acima do conteúdo, abaixo do teclado) */
   terminalTabs: 40,
+  /** Barra de rolagem do scrollback (overlay fino à direita) */
+  terminalScrollbar: 45,
   /** Navegação flutuante Chat/Terminal/N8N/Config */
   dock: 100,
   /** Ícone minimizado do teclado — SEMPRE acima do Dock */
