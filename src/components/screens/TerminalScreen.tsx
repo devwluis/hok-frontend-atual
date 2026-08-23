@@ -70,6 +70,38 @@ function readQuickCmds(): string[] {
   } catch { return [...QUICK_DEFAULT]; }
 }
 
+// ── Teclado estendido (Lote 1): seções deslizáveis estilo Termius ──
+// Sequências de escape por tecla (enviadas direto ao PTY via writeToShell).
+const XKEYS: { label: string; seq: string; group: string }[] = [
+  // Navegação
+  { label: "Home", seq: "\x1b[1~", group: "nav" },
+  { label: "End", seq: "\x1b[4~", group: "nav" },
+  { label: "PgUp", seq: "\x1b[5~", group: "nav" },
+  { label: "PgDn", seq: "\x1b[6~", group: "nav" },
+  { label: "Ins", seq: "\x1b[2~", group: "nav" },
+  { label: "Del", seq: "\x1b[3~", group: "nav" },
+  // Modificadores-combo prontos
+  { label: "^W", seq: "\x17", group: "combo" },
+  { label: "^R", seq: "\x12", group: "combo" },
+  { label: "^L", seq: "\x0c", group: "combo" },
+  { label: "^S", seq: "\x13", group: "combo" },
+  { label: "^Z", seq: "\x1a", group: "combo" },
+  // F1-F12
+  { label: "F1", seq: "\x1bOP", group: "fn" },
+  { label: "F2", seq: "\x1bOQ", group: "fn" },
+  { label: "F3", seq: "\x1bOR", group: "fn" },
+  { label: "F4", seq: "\x1bOS", group: "fn" },
+  { label: "F5", seq: "\x1b[15~", group: "fn" },
+  { label: "F6", seq: "\x1b[17~", group: "fn" },
+  { label: "F7", seq: "\x1b[18~", group: "fn" },
+  { label: "F8", seq: "\x1b[19~", group: "fn" },
+  { label: "F9", seq: "\x1b[20~", group: "fn" },
+  { label: "F10", seq: "\x1b[21~", group: "fn" },
+  { label: "F11", seq: "\x1b[23~", group: "fn" },
+  { label: "F12", seq: "\x1b[24~", group: "fn" },
+];
+const SYM_KEYS = ["|", "\\", "?", "-", ":", ";", "!", "~", "@", "$", "*", "^", "%", "=", "`", "<", ">", "(", ")", "{", "}", "[", "]"];
+
 type ArmedMod = "none" | "ctrl" | "alt";
 // BUG 3 — modificadores viram conjunto independente (toggle: tocar de novo
 // desativa; Ctrl e Alt podem ficar ativos juntos p/ combinações Ctrl+Alt).
@@ -1155,10 +1187,42 @@ export function TerminalScreen() {
       {/* ── Barra de teclas especiais (mobile) — accessory view do teclado ── */}
       <div
         className="pointer-events-none fixed inset-x-0 z-40 px-2"
-        style={{ bottom: showKeysBar ? kbInset : -72, transition: "bottom 0.18s ease" }}
+        style={{ bottom: showKeysBar ? kbInset : -120, transition: "bottom 0.18s ease" }}
         data-testid="special-keys-bar"
       >
-        <div className="pointer-events-auto thin-scroll mx-auto flex max-w-full items-center gap-2 overflow-x-auto rounded-2xl border border-emerald-900/50 bg-[#0d1117]/95 px-2 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm">
+        {/* Lote 1 — linha estendida deslizável: nav/combo/F-keys + símbolos */}
+        <div className="pointer-events-auto thin-scroll mx-auto mb-1 max-w-full overflow-x-auto rounded-t-2xl border border-emerald-900/50 bg-[#0d1117]/95 px-2 py-1 backdrop-blur-sm" style={{ WebkitOverflowScrolling: "touch" }}>
+          <div className="flex w-max items-center gap-1">
+            {XKEYS.filter((k) => k.group === "nav").map((k) => (
+              <button key={k.label} type="button" data-testid={`xkey-${k.label}`} onClick={() => writeActive(k.seq)}
+                className="flex h-9 min-w-[44px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[10px] font-mono text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
+                {k.label}
+              </button>
+            ))}
+            <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
+            {XKEYS.filter((k) => k.group === "combo").map((k) => (
+              <button key={k.label} type="button" data-testid={`xkey-${k.label}`} onClick={() => writeActive(k.seq)}
+                className="flex h-9 min-w-[38px] shrink-0 select-none items-center justify-center rounded-lg border border-amber-700/50 bg-amber-500/5 px-2 text-[10px] font-mono text-amber-300 active:bg-amber-400 active:text-emerald-950">
+                {k.label}
+              </button>
+            ))}
+            <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
+            {SYM_KEYS.map((s, i) => (
+              <button key={"sym-" + i} type="button" data-testid={`xkey-sym-${i}`} onClick={() => writeActive(s)}
+                className="flex h-9 min-w-[34px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[12px] font-mono text-emerald-200 active:bg-emerald-400 active:text-emerald-950">
+                {s}
+              </button>
+            ))}
+            <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
+            {XKEYS.filter((k) => k.group === "fn").map((k) => (
+              <button key={k.label} type="button" data-testid={`xkey-${k.label}`} onClick={() => writeActive(k.seq)}
+                className="flex h-9 min-w-[36px] shrink-0 select-none items-center justify-center rounded-lg border border-sky-800/50 bg-sky-500/5 px-2 text-[10px] font-mono text-sky-300 active:bg-sky-400 active:text-emerald-950">
+                {k.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="pointer-events-auto thin-scroll mx-auto flex max-w-full items-center gap-2 overflow-x-auto rounded-b-2xl border border-emerald-900/50 bg-[#0d1117]/95 px-2 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.55)] backdrop-blur-sm">
           <SwipeKey type="button" onClick={pressCtrl}
             onSwipeUp={swipeCtrlUp} onSwipeDown={swipeCtrlDown} data-testid="key-ctrl"
             className={cn(keyBase, "active:bg-emerald-400 active:text-emerald-950", armed.ctrl ? keyActive : keyIdle)}>Ctrl</SwipeKey>
