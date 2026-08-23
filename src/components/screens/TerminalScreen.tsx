@@ -289,7 +289,6 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
   // visible) dispara o ResizeObserver com o MESMO tamanho — enviar SIGWINCH
   // aí faz o bash redesenhar o prompt (\x1b[A + \x1b[K) e APAGA o histórico
   // no ring/scrollback do reattach.
-  const arrowsLastYRef = useRef<number | null>(null); // LOTE 3 — trackpad setas
   const lastResizeRef = useRef("");
   const scheduleResizeSend = useCallback(() => {
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
@@ -700,7 +699,6 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
       const t = termRef.current;
       if (!t) return;
       if (e.touches.length === 1) {
-        arrowsLastYRef.current = e.touches[0].clientY;
         touchYRef.current = e.touches[0].clientY;
         touchStartPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
@@ -727,19 +725,6 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
       }
     };
     const onTouchMove = (e: TouchEvent) => {
-      // LOTE 3 — modo trackpad de setas: arrasto vertical vira ↑/↓ contínuo.
-      if (arrowsTrackpadOn() && e.touches.length === 1) {
-        const y = e.touches[0].clientY;
-        const last = arrowsLastYRef.current ?? y;
-        const dy = last - y; // positivo = arrastou p/ cima = seta p/ cima
-        if (Math.abs(dy) >= 24) {
-          const n = Math.min(6, Math.floor(Math.abs(dy) / 24));
-          writeToShell(dy > 0 ? "\x1b[A".repeat(n) : "\x1b[B".repeat(n));
-          arrowsLastYRef.current = y;
-        }
-        e.preventDefault();
-        return;
-      }
       if (touchStartPosRef.current && e.touches.length === 1) {
         const dx = e.touches[0].clientX - touchStartPosRef.current.x;
         const dy = e.touches[0].clientY - touchStartPosRef.current.y;
@@ -958,8 +943,6 @@ export function TerminalScreen() {
   // FIX 21/08 — botão fixo "Copiar tudo" (scrollback inteiro) no header
   const [copiedAll, setCopiedAll] = useState(false);
   const [fontPx, setFontPx] = useState(() => readTerminalFontSize());
-  const spaceHoldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [arrowsMode, setArrowsMode] = useState(false);
   const copyAllTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onCopyAll = async () => {
     const ok = await bodyRefs.current.get(activeTabId)?.copyAll();
@@ -1271,36 +1254,6 @@ export function TerminalScreen() {
         {/* Lote 1 — linha estendida deslizável: nav/combo/F-keys + símbolos */}
         <div className="pointer-events-auto thin-scroll mx-auto mb-1 max-w-full overflow-x-auto rounded-t-2xl border border-emerald-900/50 bg-[#0d1117]/95 px-2 py-1 backdrop-blur-sm" style={{ WebkitOverflowScrolling: "touch" }}>
           <div className="flex w-max items-center gap-1">
-            <button type="button" data-testid="xkey-space"
-              onTouchStart={() => {
-                spaceHoldTimer.current = setTimeout(() => {
-                  spaceHoldTimer.current = null;
-                  arrowsTrackpad.on = !arrowsTrackpad.on;
-                  setArrowsMode(arrowsTrackpad.on);
-                }, 500);
-              }}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                if (spaceHoldTimer.current) {
-                  clearTimeout(spaceHoldTimer.current);
-                  spaceHoldTimer.current = null;
-                  writeActive(" ");
-                }
-              }}
-              onClick={() => {
-                if (!("ontouchstart" in window)) writeActive(" ");
-              }}
-              className={cn(
-                "flex h-9 min-w-[52px] shrink-0 select-none items-center justify-center rounded-lg border px-2 text-[10px] font-mono",
-                arrowsMode
-                  ? "border-emerald-300 bg-emerald-400 text-emerald-950 font-bold ring-2 ring-emerald-300/80"
-                  : "border-emerald-900/50 bg-emerald-500/5 text-emerald-300 active:bg-emerald-400 active:text-emerald-950",
-              )}
-              title="Toque = espaço · segurar = modo setas (arraste na tela)"
-            >
-              {arrowsMode ? "↑↓ ON" : "Space"}
-            </button>
-            <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
             {XKEYS.filter((k) => k.group === "nav").map((k) => (
               <button key={k.label} type="button" data-testid={`xkey-${k.label}`} onClick={() => writeActive(k.seq)}
                 className="flex h-9 min-w-[44px] shrink-0 select-none items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-500/5 px-2 text-[10px] font-mono text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
