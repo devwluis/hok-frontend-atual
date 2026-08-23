@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Palette, Keyboard } from "lucide-react";
+import { Palette, Keyboard, Plus, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { appStore } from "@/lib/app-state";
 import { TERMINAL_THEMES } from "./SettingsScreen";
@@ -67,6 +67,24 @@ const KEYS_BAR_H = 46; // altura da barra de teclas (px) — reserva do iframe
 // (bottom-4 + altura ~90px do Dock + respiro). Garante a pilha visual:
 // conteúdo → ícone do teclado → navegação HOK OS → teclado do sistema.
 const DOCK_CLEAR_PX = 116;
+
+// TESTE B — zoom (fontSize ±) via escala visual do iframe ttyd. O xterm roda
+// cross-origin dentro do iframe: não há acesso direto ao fontSize dele, então
+// escalamos o próprio iframe com compensação de dimensões — mesmo efeito de
+// zoom de terminal real (fonte maior, menos colunas/linhas visíveis).
+const FONTSCALE_KEY = "hokma.terminal.fontscale.v1";
+const FONTSCALE_MIN = 0.7;
+const FONTSCALE_MAX = 1.6;
+
+function readFontScale(): number {
+  try {
+    const n = Number(localStorage.getItem(FONTSCALE_KEY));
+    if (Number.isFinite(n) && n >= FONTSCALE_MIN && n <= FONTSCALE_MAX) return n;
+  } catch {
+    /* noop */
+  }
+  return 1;
+}
 
 export function TerminalTTYDScreen() {
   const [url, setUrl] = useState<string | null>(null);
@@ -286,6 +304,18 @@ export function TerminalTTYDScreen() {
     }).catch(() => {});
   }, [themeIdx, url, serverBase]);
 
+  // TESTE B — zoom persistido (escala visual do iframe; 1 = 100%)
+  const [fontScale, setFontScale] = useState(readFontScale);
+  const applyFontScale = useCallback((next: number) => {
+    const v = Math.min(FONTSCALE_MAX, Math.max(FONTSCALE_MIN, Math.round(next * 10) / 10));
+    setFontScale(v);
+    try {
+      localStorage.setItem(FONTSCALE_KEY, String(v));
+    } catch {
+      /* noop */
+    }
+  }, []);
+
   return (
     <div className="flex h-full w-full flex-col bg-[#011627] font-mono text-emerald-400">
       <div className="flex items-center justify-between border-b border-emerald-900/40 px-3 py-2 text-[11px]">
@@ -294,6 +324,22 @@ export function TerminalTTYDScreen() {
           <span className={err ? "text-red-300" : url ? "text-emerald-300" : "text-amber-300"}>
             {err ? "ERRO" : url ? "LIVE" : "Conectando…"}
           </span>
+          {/* TESTE B — zoom (fontSize ±) via escala visual do iframe */}
+          <button onClick={() => applyFontScale(fontScale - 0.1)}
+            title={`Zoom − (${Math.round(fontScale * 100)}%)`}
+            data-testid="term-zoom-out"
+            className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
+            <Minus className="h-3 w-3" />
+          </button>
+          <span className="min-w-[34px] text-center text-[10px] text-emerald-400/70" data-testid="term-zoom-level">
+            {Math.round(fontScale * 100)}%
+          </span>
+          <button onClick={() => applyFontScale(fontScale + 0.1)}
+            title={`Zoom + (${Math.round(fontScale * 100)}%)`}
+            data-testid="term-zoom-in"
+            className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
+            <Plus className="h-3 w-3" />
+          </button>
           {/* TESTE 2 — ciclo de temas aplicado À SESSÃO ttyd viva (OSC) */}
           <button onClick={cycleTheme}
             title={`Tema: ${themeName} (clique para trocar)`}
@@ -304,7 +350,7 @@ export function TerminalTTYDScreen() {
         </div>
       </div>
       <div
-        className="relative min-h-0 flex-1 bg-black"
+        className="relative min-h-0 flex-1 overflow-hidden bg-black"
         style={{ paddingBottom: KEYS_BAR_H }}
       >
         {err ? (
@@ -315,6 +361,12 @@ export function TerminalTTYDScreen() {
             src={url}
             title="Terminal HOK"
             className="h-full w-full border-0 bg-black"
+            style={{
+              transform: `scale(${fontScale})`,
+              transformOrigin: "top left",
+              width: `${100 / fontScale}%`,
+              height: `${100 / fontScale}%`,
+            }}
             allow="clipboard-read; clipboard-write"
           />
         ) : (
