@@ -145,6 +145,9 @@ export function TerminalTTYDScreen() {
       /* noop */
     }
   }, []);
+  // Encolhimento do iframe com teclado aberto: alinha o rodapé do TUI logo
+  // acima da barra de teclas (barra ocupa kbInset..kbInset+48 do rodapé).
+  const kbShift = Math.max(0, kbInset - 128);
   const nudgeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const scheduleFitNudge = useCallback(() => {
     nudgeTimersRef.current.forEach(clearTimeout);
@@ -572,13 +575,17 @@ export function TerminalTTYDScreen() {
               scheduleFitNudge();
             }}
             style={{
-              // FIX kbfocus: com teclado do sistema aberto (kbInset), sobe o
-              // conteúdo para que o rodapé do TUI (input + faixa verde) fique
-              // logo acima da barra de teclas — chat visível de topo a base.
-              transform: `translateY(-${Math.max(0, kbInset - 128)}px) scale(${fontScale})`,
+              // FIX kbfocus v2 (23/08): com teclado aberto, ENCOLHE a altura
+              // do iframe (em vez de translateY, que cortava o topo). O resize
+              // interno faz o xterm refit → TUI redistribui: scrollback intacto
+              // em cima, caixa de digitação pousando logo acima da barra.
+              height:
+                kbShift > 0
+                  ? `calc(${100 / fontScale}% - ${kbShift}px)`
+                  : `${100 / fontScale}%`,
+              transform: `scale(${fontScale})`,
               transformOrigin: "top left",
               width: `${100 / fontScale}%`,
-              height: `${100 / fontScale}%`,
             }}
             allow="clipboard-read; clipboard-write"
           />
