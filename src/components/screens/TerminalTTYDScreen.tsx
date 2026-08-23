@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Palette, Keyboard, Plus, Minus, X, ChevronUp, ChevronDown } from "lucide-react";
+import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHELL_Z, aboveDock, keysReservePx } from "@/lib/shell-layers";
 import { TERMINAL_THEMES } from "./SettingsScreen";
@@ -559,10 +559,9 @@ export function TerminalTTYDScreen() {
         >
           <button type="button" data-testid="ov-toggle"
             onClick={toggleKeysBar}
-            title="Abrir teclado especial (tocar novamente na barra para recolher)"
-            className="relative flex h-10 w-10 select-none items-center justify-center rounded-xl border border-emerald-900/60 bg-[#0b1626]/95 text-emerald-300 shadow-lg active:bg-emerald-400 active:text-emerald-950">
-            <Keyboard className="h-5 w-5" />
-            <ChevronUp className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full border border-emerald-400/60 bg-[#0b1626] text-emerald-300" />
+            title="Maximizar: ver chat completo + teclado especial"
+            className="relative flex h-10 w-10 select-none items-center justify-center rounded-xl border border-emerald-400/60 bg-[#0b1626]/95 text-emerald-300 shadow-lg active:bg-emerald-400 active:text-emerald-950">
+            <Maximize2 className="h-5 w-5" />
           </button>
         </div>
       ) : (
@@ -625,10 +624,9 @@ export function TerminalTTYDScreen() {
         <div className="thin-scroll flex w-max items-center gap-1 overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
           <button type="button" data-testid="ov-collapse"
             onClick={toggleKeysBar}
-            title="Recolher teclado especial (minimizar para ícone)"
-            className="relative flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-lg border border-emerald-300/60 bg-emerald-400/10 text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
-            <Keyboard className="h-4 w-4" />
-            <ChevronDown className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full border border-emerald-400/60 bg-[#0b1626] text-emerald-300" />
+            title="Minimizar: voltar ao ícone compacto (terminal ocupa o máximo)"
+            className="relative flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-lg border border-red-800/60 bg-red-500/10 text-emerald-300 active:bg-emerald-400 active:text-emerald-950">
+            <Minimize2 className="h-4 w-4" />
           </button>
           <span className="mx-0.5 h-6 w-px shrink-0 bg-emerald-900/40" />
           <button type="button" data-testid="ov-sticky-ctrl"
