@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Palette } from "lucide-react";
+import { TERMINAL_THEMES } from "./SettingsScreen";
 
 const RENEW_MARGIN_S = 60;
 const RETRY_ERR_MS = 10_000;
@@ -119,6 +121,53 @@ export function TerminalTTYDScreen() {
     }
   })() : "";
 
+  // TESTE 2 — ciclo de temas aplicado à sessão ttyd viva (OSC 10/11/4 → tmux)
+  const themeKeys = Object.keys(TERMINAL_THEMES);
+  const [themeIdx, setThemeIdx] = useState(0);
+  const themeName = themeKeys[themeIdx % themeKeys.length] ?? "HOK Dark";
+
+  const hexToOsc = (h: string): string => {
+    const s = h.replace("#", "").toLowerCase();
+    return s.length === 6
+      ? "rgb:" + s.slice(0, 2) + "/" + s.slice(2, 4) + "/" + s.slice(4, 6)
+      : "";
+  };
+
+  const cycleTheme = useCallback(() => {
+    const nextKey = themeKeys[(themeIdx + 1) % themeKeys.length];
+    setThemeIdx(themeKeys.indexOf(nextKey));
+    try {
+      localStorage.setItem("hokma.terminal.theme.v1", nextKey);
+    } catch {
+      /* noop */
+    }
+    const th = TERMINAL_THEMES[nextKey]?.theme;
+    if (!th || !url || !serverBase) return;
+    let tok = "";
+    try {
+      tok = new URL(url).searchParams.get("token") ?? "";
+    } catch {
+      tok = "";
+    }
+    if (!tok) return;
+    let osc = "\x1b]11;" + hexToOsc(th.background ?? "") + "\x07";
+    osc += "\x1b]10;" + hexToOsc(th.foreground ?? "") + "\x07";
+    osc += "\x1b]12;" + hexToOsc(th.cursor ?? "") + "\x07";
+    const ansiOrder = [
+      "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+      "brightBlack", "brightRed", "brightGreen", "brightYellow",
+      "brightBlue", "brightMagenta", "brightCyan", "brightWhite",
+    ];
+    ansiOrder.forEach((c, i) => {
+      osc += "\x1b]4;" + i + ";" + hexToOsc(th[c] ?? "#000000") + "\x07";
+    });
+    void fetch(serverBase + "/terminal/ttyd/theme?token=" + encodeURIComponent(tok), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ osc }),
+    }).catch(() => {});
+  }, [themeIdx, url, serverBase]);
+
   const sendToKeys = useCallback(
     async (payload: { key?: string; text?: string }) => {
       const qs = new URLSearchParams({ token: tokQ });
@@ -152,9 +201,18 @@ export function TerminalTTYDScreen() {
     <div className="flex h-full w-full flex-col bg-[#011627] font-mono text-emerald-400">
       <div className="flex items-center justify-between border-b border-emerald-900/40 px-3 py-2 text-[11px]">
         <span className="text-emerald-300/80">HOK Server · terminal (ttyd)</span>
-        <span className={err ? "text-red-300" : url ? "text-emerald-300" : "text-amber-300"}>
-          {err ? "ERRO" : url ? "LIVE" : "Conectando…"}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={err ? "text-red-300" : url ? "text-emerald-300" : "text-amber-300"}>
+            {err ? "ERRO" : url ? "LIVE" : "Conectando…"}
+          </span>
+          {/* TESTE 2 — ciclo de temas aplicado À SESSÃO ttyd viva (OSC) */}
+          <button onClick={cycleTheme}
+            title={`Tema: ${themeName} (clique para trocar)`}
+            data-testid="term-theme"
+            className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
+            <Palette className="h-3 w-3" />
+          </button>
+        </div>
       </div>
       <div className="relative min-h-0 flex-1 bg-black">
         {err ? (

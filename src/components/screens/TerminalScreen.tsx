@@ -1,6 +1,6 @@
 "use client";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw, FileText, Loader2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Copy, Check, ListChecks, ClipboardPaste, Palette } from "lucide-react";
+import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw, FileText, Loader2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Copy, Check, ListChecks, ClipboardPaste } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -1076,11 +1076,6 @@ export function TerminalScreen() {
           <button onClick={onCopyAll} title="Copiar tudo (scrollback inteiro)" data-testid="term-copy-all"
             className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
             {copiedAll ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          </button>
-          {/* TESTE 2 — ciclo de temas: aplica ao xterm in-app E à sessão ttyd viva */}
-          <button onClick={cycleTheme} title={`Tema: ${TERMINAL_THEMES[cycleIdx]?.name ?? ""} (clique para trocar)`}
-            data-testid="term-theme" className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
-            <Palette className="h-3.5 w-3.5" />
           </button>
           <button onClick={() => bodyRefs.current.get(activeTabId)?.openLog()} title="Ver contexto completo (modo leitura)"
             className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
