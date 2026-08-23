@@ -69,3 +69,16 @@ export const keysReservePx = (expanded: boolean, extraGroup: boolean): number =>
   (expanded
     ? (extraGroup ? KEYS_BAR_ROW_PX * 2 : KEYS_BAR_ROW_PX) + KEYS_SAFETY_PX
     : KEYS_ICON_BAND_PX);
+
+// FIX kbfocus v2: com o teclado do sistema aberto, o iframe ENCOLHE essa
+// quantidade (não translada!) → xterm refaz o fit → TUI redistribui com o
+// scrollback intacto no topo e a caixa de digitação pousando logo acima da
+// barra. Derivado das constantes acima (zero número mágico no componente):
+// o rodapé do iframe deve pousar em kbInset + barra + respiro.
+const BAR_TOP_GAP_PX = 8;
+export const keyboardShiftPx = (kbInset: number): number => {
+  if (kbInset <= 0) return 0;
+  const reserve = keysReservePx(true, false); // estado expandido é o caso do teclado
+  const desiredBottomFromKeyboardTop = KEYS_BAR_ROW_PX + BAR_TOP_GAP_PX;
+  return Math.max(0, kbInset + desiredBottomFromKeyboardTop - reserve);
+};

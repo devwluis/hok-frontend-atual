@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { SHELL_Z, aboveDock, keysReservePx } from "@/lib/shell-layers";
+import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx } from "@/lib/shell-layers";
 import { TERMINAL_THEMES } from "./SettingsScreen";
 
 const RENEW_MARGIN_S = 60;
@@ -168,9 +168,9 @@ export function TerminalTTYDScreen() {
   // mobile abre — usamos window.visualViewport (área REALMENTE visível) para
   // reposicionar a barra colada no topo do teclado, subindo/descendo junto.
   const [kbInset, setKbInset] = useState(0);
-  // Encolhimento do iframe com teclado aberto: alinha o rodapé do TUI logo
-  // acima da barra de teclas (barra ocupa kbInset..kbInset+48 do rodapé).
-  const kbShift = Math.max(0, kbInset - 128);
+  // Encolhimento do iframe com teclado aberto — fórmula centralizada em
+  // shell-layers.ts (keyboardShiftPx): rodapé do TUI pousa acima da barra.
+  const kbShift = keyboardShiftPx(kbInset);
 
   // TESTE minimizável estilo Termius: ícone compacto ↔ barra completa.
   // Preferência persistida.
