@@ -18,8 +18,31 @@ const SETTINGS_KEY = "hokma.settings.v1";
 export const TERMINAL_THEME_KEY = "hokma.terminal.theme.v1";
 export const TERMINAL_THEME_EVENT = "hokma:terminal-theme";
 export const TERMINAL_THEMES: Record<string, { name: string; colors: string[]; theme: Record<string, string> }> = {
+  // TESTE 2 — paletas Termius-like e High Contrast
+  termius: {
+    name: "Termius-like",
+    colors: ["#011627", "#d6deeb", "#ffcb8b", "#ef5350"],
+    theme: {
+      background: "#011627", foreground: "#d6deeb", cursor: "#ffcb8b", cursorAccent: "#011627",
+      selectionBackground: "#1d3b53", black: "#011627", red: "#ef5350", green: "#ecc48d", yellow: "#ffeb95",
+      blue: "#82aaff", magenta: "#c792ea", cyan: "#7fdbca", white: "#d6deeb",
+      brightBlack: "#5f7e97", brightRed: "#ff5370", brightGreen: "#addb67", brightYellow: "#ffcb8b",
+      brightBlue: "#82aaff", brightMagenta: "#c792ea", brightCyan: "#7fdbca", brightWhite: "#ffffff",
+    },
+  },
+  highcontrast: {
+    name: "High Contrast",
+    colors: ["#000000", "#ffffff", "#ffff00", "#ff4040"],
+    theme: {
+      background: "#000000", foreground: "#ffffff", cursor: "#ffff00", cursorAccent: "#000000",
+      selectionBackground: "#ffff0044", black: "#000000", red: "#ff3030", green: "#30ff30", yellow: "#ffff30",
+      blue: "#3080ff", magenta: "#ff30ff", cyan: "#30ffff", white: "#ffffff",
+      brightBlack: "#909090", brightRed: "#ff5050", brightGreen: "#50ff50", brightYellow: "#ffff50",
+      brightBlue: "#60b0ff", brightMagenta: "#ff60ff", brightCyan: "#50ffff", brightWhite: "#ffffff",
+    },
+  },
   dark: {
-    name: "Dark",
+    name: "HOK Dark",
     colors: ["#0d1117", "#6ee7b7", "#34d399", "#f87171"],
     theme: {
       background: "#0d1117", foreground: "#6ee7b7", cursor: "#34d399", cursorAccent: "#0d1117",

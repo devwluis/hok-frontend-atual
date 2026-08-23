@@ -1,6 +1,6 @@
 "use client";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw, FileText, Loader2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Copy, Check, ListChecks, ClipboardPaste } from "lucide-react";
+import { Terminal as TermIcon, Circle, Wifi, WifiOff, RotateCcw, FileText, Loader2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Copy, Check, ListChecks, ClipboardPaste, Palette } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -194,6 +194,7 @@ export type TerminalTabBodyHandle = {
   focus: () => void;
   openLog: () => void;
   copyAll: () => Promise<boolean>;
+  getTerm: () => import("@xterm/xterm").Terminal | null;
 };
 
 const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(function TerminalTabBody(
@@ -741,6 +742,7 @@ const TerminalTabBody = forwardRef<TerminalTabBodyHandle, TerminalTabBodyProps>(
     focus: () => { try { termRef.current?.textarea?.focus(); } catch { /* ignore */ } },
     openLog: () => { showLogRef.current = true; setShowLog(true); },
     copyAll: () => handleCopyAll(),
+    getTerm: () => termRef.current,
   }), []);
 
   // ── Scrollbar customizada real (buffer de 10000 linhas) ──
@@ -890,6 +892,51 @@ export function TerminalScreen() {
   // FIX 21/08 — botão fixo "Copiar tudo" (scrollback inteiro) no header
   const [copiedAll, setCopiedAll] = useState(false);
   const copyAllTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // TESTE 2 — ciclo de temas sobre os dois terminais (in-app + ttyd via OSC)
+  const themeKeys = Object.keys(TERMINAL_THEMES);
+  const [cycleIdx, setCycleIdx] = useState(0);
+  // TESTE 2 — ciclo de temas sobre os dois terminais (in-app + ttyd via OSC)
+  const serverBase = useMemo(() => {
+    try {
+      const raw = localStorage.getItem("hokma.settings.v1");
+      const s = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+      return String(s["Server URL"] ?? "").replace(/\/$/, "");
+    } catch {
+      return "";
+    }
+  }, []);
+  const cycleTheme = useCallback(() => {
+    const nextKey = themeKeys[cycleIdx % themeKeys.length];
+    // 1) xterm in-app da aba ativa
+    const t = bodyRefs.current.get(activeTabId)?.getTerm?.() ?? null;
+    if (t) t.options.theme = { ...TERMINAL_THEMES[nextKey].theme };
+    // 2) persiste + sincroniza outras instâncias
+    try { localStorage.setItem(TERMINAL_THEME_KEY, nextKey); } catch { /* noop */ }
+    window.dispatchEvent(new CustomEvent(TERMINAL_THEME_EVENT, { detail: { theme: nextKey } }));
+    // 3) sessão ttyd viva: paleta via OSC (rota backend → tmux send-keys -l)
+    try {
+      const f = document.querySelector("iframe") as HTMLIFrameElement | null;
+      const m = f?.src?.match(/[?&]token=([^&]+)/);
+      const tok = m ? decodeURIComponent(m[1]) : "";
+      if (tok && serverBase) {
+        const th = TERMINAL_THEMES[nextKey].theme;
+        const ansiOrder = ["black","red","green","yellow","blue","magenta","cyan","white",
+          "brightBlack","brightRed","brightGreen","brightYellow","brightBlue","brightMagenta","brightCyan","brightWhite"];
+        const ansi = ansiOrder.map((k2) => th[k2] ?? "#000000");
+        void fetch(`${serverBase}/terminal/ttyd/theme?token=${encodeURIComponent(tok)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            background: th.background ?? "",
+            foreground: th.foreground ?? "",
+            cursor: th.cursor ?? "",
+            ansi,
+          }),
+        }).catch(() => {});
+      }
+    } catch { /* noop */ }
+    setCycleIdx((i) => i + 1);
+  }, [cycleIdx, activeTabId, serverBase]);
   const onCopyAll = async () => {
     const ok = await bodyRefs.current.get(activeTabId)?.copyAll();
     if (ok) {
@@ -1029,6 +1076,11 @@ export function TerminalScreen() {
           <button onClick={onCopyAll} title="Copiar tudo (scrollback inteiro)" data-testid="term-copy-all"
             className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
             {copiedAll ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          </button>
+          {/* TESTE 2 — ciclo de temas: aplica ao xterm in-app E à sessão ttyd viva */}
+          <button onClick={cycleTheme} title={`Tema: ${TERMINAL_THEMES[cycleIdx]?.name ?? ""} (clique para trocar)`}
+            data-testid="term-theme" className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
+            <Palette className="h-3.5 w-3.5" />
           </button>
           <button onClick={() => bodyRefs.current.get(activeTabId)?.openLog()} title="Ver contexto completo (modo leitura)"
             className="rounded-md border border-emerald-900/50 bg-emerald-500/5 p-1 text-emerald-300 hover:bg-emerald-500/10">
