@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw, Copy, Square } from "lucide-react";
+import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw, Copy, Square, ClipboardCopy, ClipboardPaste } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx, DOCK_CLEAR_PX } from "@/lib/shell-layers";
 import { TERMINAL_THEMES, readTerminalTheme } from "./SettingsScreen";
@@ -444,12 +444,12 @@ export function TerminalTTYDScreen() {
 	const [selMode, setSelMode] = useState(false);
 	const [selBusy, setSelBusy] = useState(false);
 	const selApi = useCallback(
-		async (action: string): Promise<{ text?: string } | null> => {
+		async (action: string, text?: string): Promise<{ text?: string } | null> => {
 			try {
 				const res = await fetch(`${serverBase}/terminal/ttyd/selection?token=${encodeURIComponent(tokQ)}`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ session: activeSession, action }),
+					body: JSON.stringify({ session: activeSession, action, text }),
 				});
 				if (!res.ok) return null;
 				return await res.json();
@@ -459,6 +459,30 @@ export function TerminalTTYDScreen() {
 		},
 		[serverBase, tokQ, activeSession],
 	);
+	const copyAll = useCallback(async () => {
+		setSelBusy(true);
+		const res = await selApi("all");
+		setSelBusy(false);
+		if (res?.text) {
+			try {
+				await navigator.clipboard.writeText(res.text);
+				setToast("copiado tudo ✓");
+			} catch {
+				setToast("falha ao copiar");
+			}
+			setTimeout(() => setToast(""), 2200);
+		}
+	}, [selApi]);
+	const pasteText = useCallback(async () => {
+		try {
+			const t = await navigator.clipboard.readText();
+			if (!t) { setToast("clipboard vazio"); setTimeout(() => setToast(""), 1500); return; }
+			await selApi("paste", t);
+		} catch {
+			setToast("sem permissão de leitura do clipboard");
+			setTimeout(() => setToast(""), 2200);
+		}
+	}, [selApi]);
 	const selectionStart = useCallback(async () => {
 		setSelBusy(true);
 		const ok = await selApi("start");
@@ -894,6 +918,11 @@ export function TerminalTTYDScreen() {
               <X size={13} />
             </button>
           )}
+          <button type="button" data-testid="term-sel-all" onClick={() => void copyAll()}
+            title="Copiar TODO o conteúdo do terminal (histórico + tela)"
+            className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: "var(--hok-terminal-muted)" }}>
+            <ClipboardCopy size={13} />
+          </button>
           <button type="button" onClick={() => setMaximized((v) => !v)} title={maximized ? "Sair da tela cheia do terminal" : "Maximizar terminal (oculta header/abas)"} data-testid="term-maximize"
             className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: "var(--hok-accent)" }}>
             {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
@@ -1053,6 +1082,12 @@ export function TerminalTTYDScreen() {
             className="flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-md border transition-colors hover:bg-white/10"
             style={{ borderColor: "var(--hok-line)", color: "var(--hok-muted)" }}>
             <Minimize2 className="h-4 w-4" />
+          </button>
+          <button type="button" data-testid="ov-paste" onClick={() => void pasteText()}
+            title="Colar do clipboard no terminal"
+            className="flex h-9 shrink-0 select-none items-center justify-center gap-1 rounded-md border px-2.5 text-[11px] font-semibold"
+            style={{ color: "var(--hok-ink)", background: "var(--hok-key)", borderColor: "var(--hok-line)", boxShadow: "0 2px 0 color-mix(in srgb, var(--hok-line) 65%, #000)" }}>
+            <ClipboardPaste size={12} /> Colar
           </button>
           <KeyButton label="Ctrl" active={sticky.ctrl} testid="ov-sticky-ctrl" onClick={() => toggleSticky("ctrl")} />
           {[k("Esc", "Escape")].map((xk) => (
