@@ -212,6 +212,9 @@ export function TerminalTTYDScreen() {
   // mobile abre — usamos window.visualViewport (área REALMENTE visível) para
   // reposicionar a barra colada no topo do teclado, subindo/descendo junto.
   const [kbInset, setKbInset] = useState(0);
+  const [kbInsetSettled, setKbInsetSettled] = useState(0);
+  const kbSettleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => { if (kbSettleTimer.current) clearTimeout(kbSettleTimer.current); }, []);
 
   // TESTE minimizável estilo Termius: ícone compacto ↔ barra completa.
   // Preferência persistida.
@@ -275,6 +278,8 @@ export function TerminalTTYDScreen() {
         Math.round(window.innerHeight - vv.height - (vv.offsetTop || 0)),
       );
       setKbInset(inset);
+      if (kbSettleTimer.current) clearTimeout(kbSettleTimer.current);
+      kbSettleTimer.current = setTimeout(() => setKbInsetSettled(inset), 140);
     };
     vv.addEventListener("resize", onVV);
     vv.addEventListener("scroll", onVV);
@@ -903,6 +908,8 @@ export function TerminalTTYDScreen() {
               // do iframe (em vez de translateY, que cortava o topo). O resize
               // interno faz o xterm refit → TUI redistribui: scrollback intacto
               // em cima, caixa de digitação pousando logo acima da barra.
+              // FIX tremor (24/08): transição suave na altura.
+              transition: "height 160ms ease-out",
               height:
                 kbShift > 0
                   ? `calc(${100 / fontScale}% - ${kbShift}px)`
