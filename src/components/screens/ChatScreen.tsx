@@ -1208,6 +1208,10 @@ export function ChatScreen() {
                             <span className="hok-orq">Orquestrador</span>
                             {opt.sub && <span className="text-[9px] text-white/70">({opt.sub})</span>}
                           </span>
+                        ) : opt.id === "opencode" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-md bg-black px-2 py-1 shadow-[0_0_0_1px_rgb(255_255_255/0.08)]">
+                            <span className="engine-chip-opencode">{opt.label}</span>
+                          </span>
                         ) : (
                           <>
                             {opt.label}
