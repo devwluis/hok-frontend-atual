@@ -1163,7 +1163,15 @@ export function ChatScreen() {
                 <span className="shrink-0 font-mono text-[10px] tracking-[0.08em] text-muted-foreground">◈ ENGINE</span>
                 <span className={cn("truncate", ENGINE_BRAND[forcedEngine] || (forcedEngine === "auto" && "text-[12px] font-semibold text-[color:var(--amber)]"))}>
                 {forcedEngine === "hok" ? (
-                  <><span className="hok-h">Hok</span><span className="hok-orq"> Orquestrador</span></>
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-black px-1.5 py-0.5">
+                    <span className="hok-h">Hok</span>
+                    <span className="hok-orq">Orquestrador</span>
+                  </span>
+                ) : forcedEngine === "opencode" ? (
+                  <span className="inline-flex items-center rounded-md bg-black px-1.5 py-[3px] shadow-[0_0_0_1px_rgb(255_255_255/0.08)]">
+                    {/* Logo oficial do opencode — wordmark SVG em blocos pixel, variante fundo escuro */}
+                    <img src="/assets/opencode-logo.svg" alt="OpenCode Terminal" className="h-[12px] w-auto" />
+                  </span>
                 ) : engineLabel}
               </span>
               </span>
