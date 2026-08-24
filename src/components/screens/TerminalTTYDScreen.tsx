@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw } from "lucide-react";
+import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw, Copy, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx, DOCK_CLEAR_PX } from "@/lib/shell-layers";
 import { TERMINAL_THEMES, readTerminalTheme } from "./SettingsScreen";
@@ -165,11 +165,13 @@ export function TerminalTTYDScreen() {
   const committedRef = useRef(false);
   const [reloadNonce, setReloadNonce] = useState(0);
 	const [tokenEpoch, setTokenEpoch] = useState(0);
+
   const [recovering, setRecovering] = useState(false);
   // PARTE 6 — modo maximizado: colapsa o chrome LOCAL do terminal (header +
   // abas) para dar máxima altura à conversa. SEM fixed inset-0 (decisão da
   // Parte 1): o Dock real do app permanece navegável.
   const [maximized, setMaximized] = useState(false);
+  const [toast, setToast] = useState("");
   const startRecovery = useCallback(() => setRecovering(true), []);
   // FIX refit (23/08): o FitAddon do xterm (dentro do iframe cross-origin)
   // mede as células ANTES da fonte terminal carregar → conta linhas demais →
@@ -437,6 +439,51 @@ export function TerminalTTYDScreen() {
       body: JSON.stringify({ session: activeSession }),
     }).catch(() => {});
   }, [serverBase, tokQ, activeSession]);
+	// TESTE E — seleção via tmux copy-mode: start → setas extendem (highlight
+	// visível) → copy (buffer tmux → clipboard) ou cancel.
+	const [selMode, setSelMode] = useState(false);
+	const [selBusy, setSelBusy] = useState(false);
+	const selApi = useCallback(
+		async (action: string): Promise<{ text?: string } | null> => {
+			try {
+				const res = await fetch(`${serverBase}/terminal/ttyd/selection?token=${encodeURIComponent(tokQ)}`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ session: activeSession, action }),
+				});
+				if (!res.ok) return null;
+				return await res.json();
+			} catch {
+				return null;
+			}
+		},
+		[serverBase, tokQ, activeSession],
+	);
+	const selectionStart = useCallback(async () => {
+		setSelBusy(true);
+		const ok = await selApi("start");
+		setSelBusy(false);
+		if (ok) setSelMode(true);
+	}, [selApi]);
+	const selectionCopy = useCallback(async () => {
+		setSelBusy(true);
+		const res = await selApi("copy");
+		setSelBusy(false);
+		setSelMode(false);
+		if (res?.text) {
+			try {
+				await navigator.clipboard.writeText(res.text);
+				setToast("copiado ✓");
+			} catch {
+				setToast("falha ao copiar");
+			}
+			setTimeout(() => setToast(""), 1800);
+		}
+	}, [selApi]);
+	const selectionCancel = useCallback(async () => {
+		setSelMode(false);
+		await selApi("cancel");
+	}, [selApi]);
   const openTab = useCallback(() => {
     setTabs(({ ids }) => {
       let n = 1;
@@ -834,6 +881,19 @@ export function TerminalTTYDScreen() {
             className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: "var(--hok-terminal-muted)" }}>
             <RotateCcw size={13} />
           </button>
+          <button type="button" data-testid={selMode ? "term-sel-copy" : "term-sel-start"} onClick={() => void (selMode ? selectionCopy() : selectionStart())}
+            title={selMode ? "Copiar texto selecionado" : "Selecionar texto (use as setas da barra para marcar)"}
+            className="rounded p-1 transition-colors hover:bg-white/10"
+            style={{ color: selMode ? "var(--hok-accent)" : "var(--hok-terminal-muted)" }}>
+            {selMode ? <Copy size={13} /> : <Square size={13} />}
+          </button>
+          {selMode && (
+            <button type="button" data-testid="term-sel-cancel" onClick={() => void selectionCancel()}
+              title="Cancelar seleção"
+              className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: "var(--hok-muted)" }}>
+              <X size={13} />
+            </button>
+          )}
           <button type="button" onClick={() => setMaximized((v) => !v)} title={maximized ? "Sair da tela cheia do terminal" : "Maximizar terminal (oculta header/abas)"} data-testid="term-maximize"
             className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: "var(--hok-accent)" }}>
             {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
