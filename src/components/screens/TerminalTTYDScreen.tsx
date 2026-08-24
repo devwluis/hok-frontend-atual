@@ -1174,34 +1174,45 @@ export function TerminalTTYDScreen() {
             <KeyButton key={xk.tid ?? xk.label} label={xk.label} wide testid={`ov-combo-${xk.tid}`} onClick={() => pressXKey(xk)} />
           ))}
         </div>
-        {/* LINHA SEMPRE VISÍVEL (compacta): recolher · Ctrl · Esc · setas · S-Tab · "..." */}
-        <div className="thin-scroll flex w-max items-center gap-1.5 overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
-          <button type="button" data-testid="ov-collapse"
-            onClick={toggleKeysBar}
-            title="Minimizar: voltar ao ícone compacto (terminal ocupa o máximo)"
-            className="flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-md border transition-colors hover:bg-white/10"
-            style={{ borderColor: "var(--hok-line)", color: "var(--hok-muted)" }}>
-            <Minimize2 className="h-4 w-4" />
-          </button>
-          <button type="button" data-testid="ov-paste" onClick={() => void pasteText()}
-            title="Colar do clipboard no terminal"
-            className="flex h-9 shrink-0 select-none items-center justify-center gap-1 rounded-md border px-2.5 text-[11px] font-semibold"
-            style={{ color: "var(--hok-ink)", background: "var(--hok-key)", borderColor: "var(--hok-line)", boxShadow: "0 2px 0 color-mix(in srgb, var(--hok-line) 65%, #000)" }}>
-            <ClipboardPaste size={12} /> Colar
-          </button>
-          <KeyButton label="Ctrl" active={sticky.ctrl} testid="ov-sticky-ctrl" onClick={() => toggleSticky("ctrl")} />
-          {[k("Esc", "Escape")].map((xk) => (
-            <KeyButton key={xk.label} label={xk.label} testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)} />
-          ))}
-          {ROW_KEYS.map((xk) => (
-            <KeyButton key={xk.tid ?? xk.label} label={xk.label} wide={xk.label.length > 3} testid={`ov-key-${xk.tid ?? xk.label}`} onClick={() => pressXKey(xk)} />
-          ))}
+        {/* LINHA SEMPRE VISÍVEL (compacta): recolher · Colar · Ctrl · Esc ·
+            setas · S-Tab · "...".
+            FIX "..." invisível (24/08): o botão estava DENTRO do container
+            `w-max overflow-x-auto` com ml-auto — w-max faz a linha crescer até
+            a soma das teclas (~600px) e ml-auto não tem espaço livre nenhum:
+            o "..." pousava fora da tela (~390px), só visível arrastando a
+            linha. Agora ele fica FORA do fluxo rolável, FIXO na borda direita
+            (comportamento Termius). */}
+        <div className="flex items-center gap-1.5">
+          <div className="thin-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
+            <button type="button" data-testid="ov-collapse"
+              onClick={toggleKeysBar}
+              title="Minimizar: voltar ao ícone compacto (terminal ocupa o máximo)"
+              className="flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-md border transition-colors hover:bg-white/10"
+              style={{ borderColor: "var(--hok-line)", color: "var(--hok-muted)" }}>
+              <Minimize2 className="h-4 w-4" />
+            </button>
+            {/* FIX 24/08 (pedido do usuário): botão Colar REMOVIDO da barra de
+                teclas — a toolbar superior já concentra todas as funções de
+                área de transferência (Selecionar/Tela/Tudo/Colar). */}
+            <KeyButton label="Ctrl" active={sticky.ctrl} testid="ov-sticky-ctrl" onClick={() => toggleSticky("ctrl")} />
+            {[k("Esc", "Escape")].map((xk) => (
+              <KeyButton key={xk.label} label={xk.label} testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)} />
+            ))}
+            {ROW_KEYS.map((xk) => (
+              <KeyButton key={xk.tid ?? xk.label} label={xk.label} wide={xk.label.length > 3} testid={`ov-key-${xk.tid ?? xk.label}`} onClick={() => pressXKey(xk)} />
+            ))}
+          </div>
           <button type="button" data-testid="ov-more"
             aria-expanded={extraGroup}
+            aria-label="Mais teclas"
             onClick={() => setExtraGroup((v) => !v)}
             title="Mais teclas (Alt, Tab, Ins/Del, Home/Pg, símbolos, F1-F12, ^combos)"
-            className="ml-auto flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-md border transition-colors hover:bg-white/10"
-            style={{ borderColor: extraGroup ? "var(--hok-accent-soft)" : "var(--hok-line)", color: extraGroup ? "var(--hok-accent)" : "var(--hok-muted)" }}>
+            className="flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-md border transition-colors hover:bg-white/10"
+            style={{
+              borderColor: extraGroup ? "var(--hok-accent)" : "var(--hok-line)",
+              color: extraGroup ? "var(--hok-accent)" : "var(--hok-ink)",
+              background: extraGroup ? "var(--hok-accent-soft)" : "var(--hok-key)",
+            }}>
             <MoreHorizontal size={16} />
           </button>
         </div>
