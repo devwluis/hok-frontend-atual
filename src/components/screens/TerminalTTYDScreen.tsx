@@ -419,6 +419,16 @@ export function TerminalTTYDScreen() {
   }, [tabs]);
   const activeId = tabs.active;
   const activeSession = sessionNameOf(activeId);
+  // PONTE CHAT→TTYD (23/08): registra a sessão VISÍVEL ativa no backend —
+  // comandos /terminal do chat passam a injetar nesta sessão (key injection).
+  useEffect(() => {
+    if (!tokQ) return;
+    void fetch(`${serverBase}/terminal/ttyd/active?token=${encodeURIComponent(tokQ)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session: activeSession }),
+    }).catch(() => {});
+  }, [serverBase, tokQ, activeSession]);
   const openTab = useCallback(() => {
     setTabs(({ ids }) => {
       let n = 1;
