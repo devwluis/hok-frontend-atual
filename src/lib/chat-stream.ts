@@ -20,6 +20,7 @@ export type StreamOpts = {
   audioB64?: string;
   audioMime?: string;
   mode?: "plan" | "build";
+  terminalSession?: string;
   conversationId?: string | null;
   onPendingAction?: (pa: PendingAction | null) => void;
   onEngineUsed?: (engine: string) => void;
@@ -122,6 +123,7 @@ export async function streamChat(opts: StreamOpts): Promise<string> {
     forceClaudeCode,
     forceHermes,
     forceOpenCode,
+    terminalSession,
     selectedModel = "auto",
     imageB64,
     imageMime,
@@ -179,6 +181,7 @@ export async function streamChat(opts: StreamOpts): Promise<string> {
     ...(mode ? { mode } : {}),
     ...(imageB64 ? { image_b64: imageB64, image_mime: imageMime || "image/jpeg" } : {}),
     ...(audioB64 ? { audio_b64: audioB64, audio_mime: audioMime || "audio/webm" } : {}),
+    ...(terminalSession ? { terminalSession } : {}),
   };
 
   const body = JSON.stringify(bodyObj);

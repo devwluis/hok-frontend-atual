@@ -452,6 +452,22 @@ function ModelCatalogList({ modelsList, search, activeModelId, onSelect }: {
 }
 
 // ── Main screen ───────────────────────────────────────────────────────────────
+// PONTE CHAT→TTYD (24/08): sessão ttyd ativa por último no terminal —
+// vai no request para o backend injetar na sessão CERTA (imune a corridas
+// de registro entre instâncias/abas do app).
+function activeTerminalSession(): string | undefined {
+  try {
+    const raw = localStorage.getItem("hokma.terminal.tabs.v1");
+    if (!raw) return undefined;
+    const t = JSON.parse(raw);
+    const active = t?.active;
+    if (!active) return undefined;
+    return active === "ttyd" ? "hok-ttyd" : "hok-terminal-" + active;
+  } catch {
+    return undefined;
+  }
+}
+
 export function ChatScreen() {
   const { conversationId, setConversationId } = useAppState();
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -841,6 +857,7 @@ export function ChatScreen() {
         forceOpenCode: forcedEngine === "opencode",
         selectedModel,
         messages: outMessages,
+        terminalSession: activeTerminalSession(),
         imageB64,
         imageMime: imageB64 ? imageMime : undefined,
         audioB64,

@@ -164,6 +164,7 @@ export function TerminalTTYDScreen() {
   const urlRef = useRef<string | null>(null);
   const committedRef = useRef(false);
   const [reloadNonce, setReloadNonce] = useState(0);
+	const [tokenEpoch, setTokenEpoch] = useState(0);
   const [recovering, setRecovering] = useState(false);
   // PARTE 6 — modo maximizado: colapsa o chrome LOCAL do terminal (header +
   // abas) para dar máxima altura à conversa. SEM fixed inset-0 (decisão da
@@ -337,13 +338,15 @@ export function TerminalTTYDScreen() {
       return "";
     }
   })();
-  const tokQ = url ? (() => {
+  const tokQ = (() => {
+    const src = urlRef.current ?? url;
+    if (!src) return "";
     try {
-      return new URL(url).searchParams.get("token") ?? "";
+      return new URL(src).searchParams.get("token") ?? "";
     } catch {
       return "";
     }
-  })() : "";
+  })();
 
   // ── FIX reconexão automática (23/08, item 4) ───────────────────────────
   // O overlay "Press to Reconnect" é INTERNO do iframe cross-origin (inalcançá-
