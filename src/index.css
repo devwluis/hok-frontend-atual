@@ -326,20 +326,10 @@
   -webkit-text-fill-color: transparent;
   color: #C4C4C4;
 }
-/* Item "OpenCode Terminal" no menu de engines — identidade oficial do logo:
-   blocos pixel retrô (Silkscreen) com gradiente cinza→branco sobre fundo preto
-   (fundo aplicado pelo wrapper no ChatScreen, igual ao chip do Hok Orquestrador) */
-.engine-chip-opencode {
-  font-family: 'Silkscreen', 'VT323', monospace;
-  font-size: 9px;
-  letter-spacing: 0.5px;
-  line-height: 1.2;
-  background: linear-gradient(180deg, #C4C4C4 0%, #FFFFFF 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: #C4C4C4;
-}
+/* Item "OpenCode Terminal" no menu de engines — identidade oficial da marca:
+   o wordmark do opencode NÃO é uma fonte — é um SVG desenhado em blocos pixel 12x12
+   (hospedado em /assets/opencode-logo.svg, variante p/ fundo escuro #F1ECEC/#B7B1B1).
+   Renderizado como <img> dentro do chip preto no ChatScreen. */
 .engine-brand-claude {
   font-family: 'PressStart2P', monospace;
   font-size: 10px;

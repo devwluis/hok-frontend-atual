@@ -1209,8 +1209,9 @@ export function ChatScreen() {
                             {opt.sub && <span className="text-[9px] text-white/70">({opt.sub})</span>}
                           </span>
                         ) : opt.id === "opencode" ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-md bg-black px-2 py-1 shadow-[0_0_0_1px_rgb(255_255_255/0.08)]">
-                            <span className="engine-chip-opencode">{opt.label}</span>
+                          <span className="inline-flex items-center rounded-md bg-black px-2 py-[5px] shadow-[0_0_0_1px_rgb(255_255_255/0.08)]">
+                            {/* Logo oficial do opencode: wordmark SVG em blocos pixel (não é fonte instalável) — variante p/ fundo escuro */}
+                            <img src="/assets/opencode-logo.svg" alt="OpenCode Terminal" className="h-[14px] w-auto" />
                           </span>
                         ) : (
                           <>
