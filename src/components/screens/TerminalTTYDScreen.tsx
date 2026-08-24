@@ -155,6 +155,33 @@ function sessionNameOf(id: string): string {
   return id === "ttyd" ? "hok-ttyd" : "hok-terminal-" + id;
 }
 
+// FIX clipboard v2 (24/08): navigator.clipboard NÃO existe em contexto não
+// seguro (http://ip-LAN, alguns WebViews/PWA) — as rodadas anteriores falhavam
+// aí em silêncio ("nada acontece"). Fallback universal: textarea invisível +
+// document.execCommand("copy"), suportado em todo Chromium mobile.
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    /* cai no fallback */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:-999px;left:-999px;opacity:0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export function TerminalTTYDScreen() {
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -192,16 +219,21 @@ export function TerminalTTYDScreen() {
     }
   }, []);
   const nudgeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // FIX tremor v2 (24/08): UM único nudge por carga do iframe (o FitAddon
+  // mede antes da fonte carregar). As rodadas anteriores disparavam DOIS
+  // tremores artificiais de 2px (350ms + 1500ms) e repetiam tudo a cada
+  // mudança do teclado — somado ao kbInset bruto no iframe, isso ERA o
+  // tremor relatado. Nudge único, só no onLoad.
   const scheduleFitNudge = useCallback(() => {
     nudgeTimersRef.current.forEach(clearTimeout);
-    nudgeTimersRef.current = [350, 1500].map((delay) =>
+    nudgeTimersRef.current = [
       setTimeout(() => {
         setFitNudgePx(2);
         nudgeTimersRef.current.push(
           setTimeout(() => setFitNudgePx(0), 90),
         );
-      }, delay),
-    );
+      }, 350),
+    ];
   }, []);
   const attemptsRef = useRef(0);
   const recoverTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -266,7 +298,13 @@ export function TerminalTTYDScreen() {
   // Encolhimento do iframe com teclado aberto — fórmula centralizada em
   // shell-layers.ts (keyboardShiftPx): expandida → rodapé acima da barra;
   // minimizada → faixa verde COLADA ao topo do teclado (zero vão).
-  const kbShift = keyboardShiftPx(kbInset, keysExpanded, barH);
+  // FIX tremor v2 (24/08, causa raiz): usa kbInsetSettled (debounce 140ms),
+  // NUNCA o kbInset bruto. O bruto muda a cada frame da animação do teclado
+  // (~30–60 eventos resize/scroll); com transition no iframe isso virava uma
+  // perseguição contínua = o "tremor" relatado. O valor settled muda UMA vez,
+  // ao final da animação. O inset BRUTO continua alimentando só os elementos
+  // FLUTUANTES (ícone/barra), que devem colar no topo do teclado ao vivo.
+  const kbShift = keyboardShiftPx(kbInsetSettled, keysExpanded, barH);
 
   useEffect(() => {
     const vv = window.visualViewport;
@@ -443,6 +481,11 @@ export function TerminalTTYDScreen() {
 	// visível) → copy (buffer tmux → clipboard) ou cancel.
 	const [selMode, setSelMode] = useState(false);
 	const [selBusy, setSelBusy] = useState(false);
+	// FIX clipboard v2 (24/08): modal de colar — se o clipboard do sistema
+	// não puder ser LIDO (permissão/contexto), o usuário cola manualmente no
+	// campo (long-press nativo SEMPRE funciona) e o texto é injetado na sessão.
+	const [pasteOpen, setPasteOpen] = useState(false);
+	const [pasteDraft, setPasteDraft] = useState("");
 	const selApi = useCallback(
 		async (action: string, text?: string): Promise<{ text?: string } | null> => {
 			try {
@@ -459,51 +502,76 @@ export function TerminalTTYDScreen() {
 		},
 		[serverBase, tokQ, activeSession],
 	);
+	const flashToast = useCallback((msg: string, ms = 2200) => {
+		setToast(msg);
+		setTimeout(() => setToast(""), ms);
+	}, []);
 	const copyAll = useCallback(async () => {
 		setSelBusy(true);
 		const res = await selApi("all");
 		setSelBusy(false);
-		if (res?.text) {
-			try {
-				await navigator.clipboard.writeText(res.text);
-				setToast("copiado tudo ✓");
-			} catch {
-				setToast("falha ao copiar");
-			}
-			setTimeout(() => setToast(""), 2200);
+		if (res?.text !== undefined && res.text.trim() !== "") {
+			const ok = await writeClipboard(res.text);
+			flashToast(ok ? "histórico copiado ✓" : "falha ao acessar a área de transferência");
+		} else {
+			flashToast("nada a copiar", 1500);
 		}
-	}, [selApi]);
+	}, [selApi, flashToast]);
+	const copyScreen = useCallback(async () => {
+		setSelBusy(true);
+		const res = await selApi("screen");
+		setSelBusy(false);
+		if (res?.text !== undefined && res.text.trim() !== "") {
+			const ok = await writeClipboard(res.text);
+			flashToast(ok ? "tela copiada ✓" : "falha ao acessar a área de transferência");
+		} else {
+			flashToast("nada a copiar", 1500);
+		}
+	}, [selApi, flashToast]);
 	const pasteText = useCallback(async () => {
 		try {
+			if (!navigator.clipboard?.readText) throw new Error("sem API");
 			const t = await navigator.clipboard.readText();
-			if (!t) { setToast("clipboard vazio"); setTimeout(() => setToast(""), 1500); return; }
+			if (!t) { flashToast("clipboard vazio", 1500); return; }
 			await selApi("paste", t);
+			flashToast("colado ✓", 1200);
 		} catch {
-			setToast("sem permissão de leitura do clipboard");
-			setTimeout(() => setToast(""), 2200);
+			// Sem permissão de LEITURA (comum em http:// e WebView): abre o
+			// modal de colagem manual — long-press nativo no campo.
+			setPasteDraft("");
+			setPasteOpen(true);
 		}
-	}, [selApi]);
+	}, [selApi, flashToast]);
+	const confirmPasteModal = useCallback(async () => {
+		const t = pasteDraft;
+		setPasteOpen(false);
+		if (!t) return;
+		await selApi("paste", t);
+		flashToast("colado ✓", 1200);
+	}, [pasteDraft, selApi, flashToast]);
 	const selectionStart = useCallback(async () => {
 		setSelBusy(true);
 		const ok = await selApi("start");
 		setSelBusy(false);
-		if (ok) setSelMode(true);
-	}, [selApi]);
+		if (ok) {
+			setSelMode(true);
+			flashToast("seleção iniciada: ←↑↓→ estendem · ⏎ copia", 3200);
+		} else {
+			flashToast("não entrou em modo de seleção");
+		}
+	}, [selApi, flashToast]);
 	const selectionCopy = useCallback(async () => {
 		setSelBusy(true);
 		const res = await selApi("copy");
 		setSelBusy(false);
 		setSelMode(false);
-		if (res?.text) {
-			try {
-				await navigator.clipboard.writeText(res.text);
-				setToast("copiado ✓");
-			} catch {
-				setToast("falha ao copiar");
-			}
-			setTimeout(() => setToast(""), 1800);
+		if (res?.text !== undefined && res.text !== "") {
+			const ok = await writeClipboard(res.text);
+			flashToast(ok ? "seleção copiada ✓" : "falha ao acessar a área de transferência");
+		} else {
+			flashToast("seleção vazia — use as setas antes de copiar", 2600);
 		}
-	}, [selApi]);
+	}, [selApi, flashToast]);
 	const selectionCancel = useCallback(async () => {
 		setSelMode(false);
 		await selApi("cancel");
@@ -547,6 +615,11 @@ export function TerminalTTYDScreen() {
 
   const pressXKey = (xk: XKey) => {
     const payload = xk.send();
+    // Modo seleção: ⏎ confirma a cópia (atalho Termius-like), não digita.
+    if (selMode && payload.key === "Enter") {
+      void selectionCopy();
+      return;
+    }
     void sendToKeys(payload);
     if (payload.key) {
       if (sticky.ctrl || sticky.alt) {
@@ -754,19 +827,18 @@ export function TerminalTTYDScreen() {
 
   const sbThumbH = 48;
 
-  // FIX follow (23/08): na transição do teclado (kbShift muda → altura do
-  // iframe muda), o xterm pode refazer o fit com contagem errada e o rodapé
-  // (faixa verde) renderiza sob a barra — texto cortado/sobreposto. Refit
-  // forçado + volta ao vivo (copy-mode cancel via rota scroll) garantem que
-  // o terminal acompanhe até a faixa verde com o output legível.
+  // FIX follow (23/08): com o teclado aberto, volta ao vivo (sai de
+  // copy-mode) para a caixa de digitação ficar visível. FIX tremor v2:
+  // SEM scheduleFitNudge aqui — com o valor settled este efeito roda UMA
+  // vez por abertura/fechamento; o resize real do iframe já dispara o refit
+  // interno do xterm. Repetir o nudge dobrava o tremor.
   const prevShiftRef = useRef(0);
   useEffect(() => {
     if (kbShift === prevShiftRef.current) return;
     const opened = kbShift > 0;
     prevShiftRef.current = kbShift;
-    scheduleFitNudge();
     if (opened) void sbApi("bottom");
-  }, [kbShift, scheduleFitNudge, sbApi]);
+  }, [kbShift, sbApi]);
 
   // TESTE B — zoom persistido (escala visual do iframe; 1 = 100%)
   const [fontScale, setFontScale] = useState(readFontScale);
@@ -890,38 +962,65 @@ export function TerminalTTYDScreen() {
           <span className="flex items-center gap-1 text-[9px] font-semibold" style={{ color: "var(--hok-tmux)" }}><Activity size={11} /> attached</span>
         </div>
       </div>
-      {/* PARTE 6 — toolbar da seção: status da sessão + Reconectar (real) +
-          Maximizar (colapso do chrome local). Permanece visível NO maximizado
-          (é o botão de saída). Search/Copy: sem backend ainda (Copy no TESTE F). */}
-      <div className="flex h-8 shrink-0 items-center justify-between px-3">
+      {/* PARTE 6 — toolbar da seção: status + Reconectar + Maximizar.
+          FIX clipboard v2 (24/08): ações de área de transferência viram chips
+          ROTULADOS (ícones de 13px não eram notados — feedback do usuário) e
+          ganham "Copiar tela" (capture-pane visível, sem copy-mode). */}
+      <div className="flex h-9 shrink-0 items-center justify-between gap-2 px-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: err ? "#f87171" : url ? "var(--hok-tmux)" : "#fbbf24" }} />
           <span className="truncate font-mono text-[10px]" style={{ color: "var(--hok-terminal-muted)" }}>
             {err ? err : `${sessionNameOf(activeId)} · ${url ? "anexado" : "conectando…"}`}
           </span>
         </div>
-        <div className="ml-2 flex shrink-0 items-center gap-1">
+        <div className="thin-scroll ml-1 flex shrink-0 items-center gap-1 overflow-x-auto">
+          {selMode ? (
+            <>
+              <button type="button" data-testid="term-sel-copy" onClick={() => void selectionCopy()}
+                title="Copiar o trecho destacado"
+                className="flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] font-bold"
+                style={{ color: "var(--hok-bg)", background: "var(--hok-accent)", borderColor: "var(--hok-accent)" }}>
+                <Copy size={12} /> Copiar
+              </button>
+              <button type="button" data-testid="term-sel-cancel" onClick={() => void selectionCancel()}
+                title="Cancelar seleção"
+                className="flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold"
+                style={{ color: "var(--hok-muted)", borderColor: "var(--hok-line)" }}>
+                <X size={12} /> Cancelar
+              </button>
+            </>
+          ) : (
+            <button type="button" data-testid="term-sel-start" onClick={() => void selectionStart()}
+              title="Selecionar texto: destaque com as setas da barra e toque em Copiar"
+              disabled={selBusy}
+              className="flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold disabled:opacity-50"
+              style={{ color: "var(--hok-terminal-muted)", borderColor: "var(--hok-line)" }}>
+              <Square size={11} /> Selecionar
+            </button>
+          )}
+          <button type="button" data-testid="term-copy-screen" onClick={() => void copyScreen()}
+            title="Copiar a tela visível (sem alterar o terminal)"
+            disabled={selBusy}
+            className="flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold disabled:opacity-50"
+            style={{ color: "var(--hok-terminal-muted)", borderColor: "var(--hok-line)" }}>
+            <Copy size={11} /> Tela
+          </button>
+          <button type="button" data-testid="term-sel-all" onClick={() => void copyAll()}
+            title="Copiar TODO o conteúdo (histórico completo)"
+            disabled={selBusy}
+            className="flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold disabled:opacity-50"
+            style={{ color: "var(--hok-terminal-muted)", borderColor: "var(--hok-line)" }}>
+            <ClipboardCopy size={11} /> Tudo
+          </button>
+          <button type="button" onClick={() => void pasteText()} data-testid="term-paste"
+            title="Colar do clipboard no terminal"
+            className="flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold"
+            style={{ color: "var(--hok-accent)", borderColor: "var(--hok-accent-soft)" }}>
+            <ClipboardPaste size={12} /> Colar
+          </button>
           <button type="button" onClick={startRecovery} title="Reconectar sessão (backoff automático)" data-testid="term-reconnect"
             className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: "var(--hok-terminal-muted)" }}>
             <RotateCcw size={13} />
-          </button>
-          <button type="button" data-testid={selMode ? "term-sel-copy" : "term-sel-start"} onClick={() => void (selMode ? selectionCopy() : selectionStart())}
-            title={selMode ? "Copiar texto selecionado" : "Selecionar texto (use as setas da barra para marcar)"}
-            className="rounded p-1 transition-colors hover:bg-white/10"
-            style={{ color: selMode ? "var(--hok-accent)" : "var(--hok-terminal-muted)" }}>
-            {selMode ? <Copy size={13} /> : <Square size={13} />}
-          </button>
-          {selMode && (
-            <button type="button" data-testid="term-sel-cancel" onClick={() => void selectionCancel()}
-              title="Cancelar seleção"
-              className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: "var(--hok-muted)" }}>
-              <X size={13} />
-            </button>
-          )}
-          <button type="button" data-testid="term-sel-all" onClick={() => void copyAll()}
-            title="Copiar TODO o conteúdo do terminal (histórico + tela)"
-            className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: "var(--hok-terminal-muted)" }}>
-            <ClipboardCopy size={13} />
           </button>
           <button type="button" onClick={() => setMaximized((v) => !v)} title={maximized ? "Sair da tela cheia do terminal" : "Maximizar terminal (oculta header/abas)"} data-testid="term-maximize"
             className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: "var(--hok-accent)" }}>
@@ -997,8 +1096,9 @@ export function TerminalTTYDScreen() {
               // do iframe (em vez de translateY, que cortava o topo). O resize
               // interno faz o xterm refit → TUI redistribui: scrollback intacto
               // em cima, caixa de digitação pousando logo acima da barra.
-              // FIX tremor (24/08): transição suave na altura.
-              transition: "height 160ms ease-out",
+              // FIX tremor v2 (24/08): SEM transition — a altura agora só
+              // muda no valor settled (uma vez, ao fim da animação do
+              // teclado); transition perseguindo valor bruto ERA o tremor.
               height:
                 kbShift > 0
                   ? `calc(${100 / fontScale}% - ${kbShift}px)`
@@ -1106,6 +1206,70 @@ export function TerminalTTYDScreen() {
           </button>
         </div>
       </div>
+      )}
+      {/* FIX clipboard v2 (24/08): feedback VISÍVEL — o estado toast já
+          existia desde o TESTE E mas nunca foi renderizado (o usuário não
+          via confirmação nenhuma de copiar/colar). Chip flutuante no topo. */}
+      {toast && (
+        <div
+          data-testid="term-toast"
+          className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full border px-3 py-1 text-[11px] font-bold shadow-lg backdrop-blur-sm"
+          style={{
+            zIndex: SHELL_Z.terminalRecovery,
+            color: "var(--hok-accent)",
+            borderColor: "var(--hok-accent-soft)",
+            background: "color-mix(in srgb, var(--hok-panel) 92%, transparent)",
+          }}
+        >
+          {toast}
+        </div>
+      )}
+      {/* FIX clipboard v2: modal de colagem manual — usado quando a leitura
+          do clipboard do sistema é negada (http://IP-LAN, WebViews). O campo
+          nativo aceita long-press → Colar em QUALQUER dispositivo. */}
+      {pasteOpen && (
+        <div
+          data-testid="term-paste-modal"
+          className="absolute inset-0 flex items-center justify-center bg-black/60 p-4"
+          style={{ zIndex: SHELL_Z.terminalModal }}
+          onClick={() => setPasteOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border p-3"
+            style={{ background: "var(--hok-panel)", borderColor: "var(--hok-line)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="mb-1.5 text-[12px] font-bold" style={{ color: "var(--hok-ink)" }}>
+              Colar no terminal
+            </p>
+            <p className="mb-2 text-[10px]" style={{ color: "var(--hok-muted)" }}>
+              Toque e segure o campo abaixo → <b>Colar</b> (menu nativo).
+            </p>
+            <textarea
+              autoFocus
+              data-testid="term-paste-input"
+              value={pasteDraft}
+              onChange={(e) => setPasteDraft(e.target.value)}
+              rows={4}
+              placeholder="Cole aqui o texto…"
+              className="w-full resize-none rounded-md border bg-black/30 p-2 font-mono text-[12px] outline-none"
+              style={{ color: "var(--hok-terminal-ink)", borderColor: "var(--hok-line)" }}
+            />
+            <div className="mt-2 flex justify-end gap-2">
+              <button type="button" onClick={() => setPasteOpen(false)}
+                className="rounded-md border px-3 py-1.5 text-[11px] font-semibold"
+                style={{ color: "var(--hok-muted)", borderColor: "var(--hok-line)" }}>
+                Cancelar
+              </button>
+              <button type="button" data-testid="term-paste-confirm" disabled={!pasteDraft.trim()}
+                onClick={() => void confirmPasteModal()}
+                className="rounded-md border px-3 py-1.5 text-[11px] font-bold disabled:opacity-40"
+                style={{ color: "var(--hok-bg)", background: "var(--hok-accent)", borderColor: "var(--hok-accent)" }}>
+                Inserir no terminal
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

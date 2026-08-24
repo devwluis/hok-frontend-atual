@@ -33,6 +33,8 @@ export const SHELL_Z = {
   keysBarExpanded: 120,
   /** Chip "reconectando…" e indicadores transitórios do terminal */
   terminalRecovery: 130,
+  /** Modal de colagem manual (fallback do clipboard) — acima de tudo */
+  terminalModal: 140,
 } as const;
 
 // ── Mapeamento do redesign (PARTE 1, 23/08) ─────────────────────────────
