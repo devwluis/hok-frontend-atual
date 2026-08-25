@@ -276,7 +276,6 @@ export function TerminalTTYDScreen() {
   const [extraGroup, setExtraGroup] = useState(false);
   useEffect(() => () => {
     nudgeTimersRef.current.forEach(clearTimeout);
-    if (sbHideTimer.current) clearTimeout(sbHideTimer.current);
   }, []);
   // FIX medição (23/08): altura REAL da barra expandida via ResizeObserver →
   // reserva e deslocamento exatos (fim do estimate drift que cortava a
@@ -732,12 +731,12 @@ export function TerminalTTYDScreen() {
   // O buffer vive dentro do iframe cross-origin: a barra é um overlay nosso
   // que comanda o tmux (posição REAL via #{scroll_position}/#{history_size}).
   // Em apps TUI (alternate screen) history=0 → auto-oculta.
-  const [sb, setSb] = useState({ visible: false, ratio: 0, dragging: false, history: 0 });
+  const [sb, setSb] = useState({ visible: false, ratio: 1, dragging: false, history: 0 });
   const sbTrackRef = useRef<HTMLDivElement | null>(null);
-  const sbHideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const sbLastSent = useRef(0);
   const sbDragHist = useRef(0);
   const sbEnteredRef = useRef(false);
+  const sbDraggingRef = useRef(false);
 
   const sbApi = useCallback(
     async (action: string, amount?: number): Promise<{ history: number; height: number; pos: number } | null> => {
@@ -756,13 +755,39 @@ export function TerminalTTYDScreen() {
     [serverBase, tokQ, activeSession],
   );
 
-  const sbBump = useCallback(() => {
-    setSb((s) => ({ ...s, visible: true }));
-    if (sbHideTimer.current) clearTimeout(sbHideTimer.current);
-    sbHideTimer.current = setTimeout(() => {
-      setSb((s) => (s.dragging ? s : { ...s, visible: false }));
-    }, 2200);
-  }, []);
+  // SCROLL FIX (25/08): sonda periódica do histórico REAL do tmux. A barra é
+  // SEMPRE visível quando history > 5 (em TUI/alternate screen history=0 →
+  // oculta, como antes) — o buffer do xterm do iframe nunca acumula
+  // scrollback real (o histórico vive DENTRO do tmux; wheel/swipe local rolam
+  // um buffer quase vazio), então a barra é o afixo de navegação primário no
+  // mobile (touch não vira mouse report). O thumb acompanha a posição real do
+  // copy-mode — rolar com a roda (mouse on no tmux) move a barra junto.
+  const sbInfoRef = useRef(sbApi);
+  sbInfoRef.current = sbApi;
+  useEffect(() => {
+    if (!tokQ) return;
+    let alive = true;
+    const probe = async () => {
+      if (sbDraggingRef.current || document.hidden) return;
+      const info = await sbInfoRef.current("info");
+      if (!alive || !info) return;
+      setSb((s) => ({
+        ...s,
+        visible: info.history > 5,
+        history: info.history,
+        ratio:
+          info.pos >= 0 && info.history > 0
+            ? Math.min(1, Math.max(0, 1 - info.pos / info.history))
+            : 1,
+      }));
+    };
+    void probe();
+    const t = setInterval(probe, 2500);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [tokQ]);
 
   const sbScrollTo = useCallback(
     async (ratio: number) => {
@@ -791,6 +816,7 @@ export function TerminalTTYDScreen() {
   const sbOnPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       e.currentTarget.setPointerCapture(e.pointerId);
+      sbDraggingRef.current = true;
       void (async () => {
         const info = await sbApi("info");
         const hist = info?.history ?? 0;
@@ -815,6 +841,7 @@ export function TerminalTTYDScreen() {
   );
 
   const sbOnPointerUp = useCallback(() => {
+    sbDraggingRef.current = false;
     setSb((s) => ({ ...s, dragging: false }));
     void (async () => {
       const info = await sbApi("info");
@@ -822,8 +849,7 @@ export function TerminalTTYDScreen() {
         setSb((s) => ({ ...s, ratio: 1 - info.pos / info.history }));
       }
     })();
-    sbBump();
-  }, [sbApi, sbBump]);
+  }, [sbApi]);
 
   const sbThumbH = 48;
 
@@ -1047,8 +1073,10 @@ export function TerminalTTYDScreen() {
             Reconectando…
           </div>
         )}
-        {/* TESTE D — scrollbar do scrollback: fina, auto-hide 2,2s, posição
-            real via tmux copy-mode. Arrastar = goto; fundo = volta ao vivo. */}
+        {/* SCROLL FIX (25/08) — scrollbar do scrollback: fina e SEMPRE visível
+            quando há histórico (sonda /terminal/ttyd/scroll a cada 2,5s).
+            Arrastar = goto via copy-mode; fundo = volta ao vivo. No desktop a
+            roda também rola (tmux mouse on) e o thumb acompanha. */}
         <div
           ref={sbTrackRef}
           data-testid="term-scrollbar"
