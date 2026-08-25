@@ -13,7 +13,6 @@ import { getModel, getFreeModels, getPaidModels, getZenModels, invalidateModelsC
 import { type PendingAction } from "@/lib/chat-stream";
 import { detectN8NIntent, N8N_SYSTEM_PROMPT, type N8NModeState } from "@/lib/n8n-expert";
 import { OwnerGate } from "@/components/shell/OwnerGate";
-import { AutomaticIcon } from "@/components/chat/EngineIcons";
 
 // Unified settings key
 const SETTINGS_KEY = "hokma.settings.v1";
@@ -34,7 +33,7 @@ function readModelSelection(): ModelSelection | null {
     const p = JSON.parse(raw) as Partial<ModelSelection>;
     if (typeof p.modelId !== "string") return null;
     return {
-      engine: ENGINE_OPTIONS.some((o) => o.id === p.engine) ? (p.engine as EngineId) : "auto",
+      engine: ENGINE_OPTIONS.some((o) => o.id === p.engine) ? (p.engine as EngineId) : "hok",
       modelId: p.modelId,
       updatedAt: typeof p.updatedAt === "string" ? p.updatedAt : "",
     };
@@ -50,10 +49,13 @@ function writeModelSelection(engine: EngineId, modelId: string) {
 // FIX 16/08 (UX): engine forçado persiste entre sessões via localStorage —
 // reler ao montar, salvar a cada troca. IDs v5: auto | hok | claude | opencode | hermes.
 type EngineId = "auto" | "hok" | "claude" | "opencode" | "hermes";
+// PARTE 2 (25/08): "Automático" removido do menu — era idêntico ao Hok Orquestrador
+// (mesma ausência de force flags no request; ver smart_chat.go classifyEngine).
+// "Hok Orquestrador" renomeado para "Hok OS" e promovido a único caminho padrão.
+// O id interno "auto" permanece na união só para migrar valores antigos do localStorage.
 const ENGINE_OPTIONS: { id: EngineId; label: string; sub?: string; Icon?: (p: { className?: string }) => React.ReactNode }[] = [
-  { id: "auto", label: "Automático", sub: "recomendado", Icon: AutomaticIcon },
-  { id: "hok", label: "Hok Orquestrador", sub: "padrão" },
-  { id: "claude", label: "Claude Code Terminal" },
+  { id: "hok", label: "Hok OS", sub: "padrão" },
+  { id: "claude", label: "Claude Code" },
   { id: "opencode", label: "OpenCode Terminal" },
   { id: "hermes", label: "Hermes" },
 ];
@@ -69,9 +71,11 @@ function readForcedEngine(): EngineId {
   try {
     const v = localStorage.getItem(ENGINE_KEY) as EngineId | "claude_code";
     if (v === "claude_code") return "claude";
+    // migração: "auto" foi removido do menu — mesmo caminho do Hok OS
+    if (v === "auto") return "hok";
     if (ENGINE_OPTIONS.some((o) => o.id === v)) return v;
   } catch { /* ignore */ }
-  return "auto";
+  return "hok";
 }
 function writeForcedEngine(v: EngineId) {
   try { localStorage.setItem(ENGINE_KEY, v); } catch { /* ignore */ }
@@ -622,7 +626,7 @@ export function ChatScreen() {
   };
 
   const activeModel = getModel(selectedModel);
-  const engineLabel = ENGINE_OPTIONS.find((o) => o.id === forcedEngine)?.label ?? "Automático";
+  const engineLabel = ENGINE_OPTIONS.find((o) => o.id === forcedEngine)?.label ?? "Hok OS";
 
   // Load messages when conversation changes
   useEffect(() => {
@@ -1177,12 +1181,12 @@ export function ChatScreen() {
               data-testid="button-engine-selector"
             >
               <span className="flex min-w-0 items-center gap-2">
-                <span className="shrink-0 font-mono text-[10px] tracking-[0.08em] text-muted-foreground">◈ ENGINE</span>
+                <span className="shrink-0 font-mono text-[10px] tracking-[0.08em] text-muted-foreground">◈<span className="max-[440px]:hidden"> ENGINE</span></span>
                 <span className={cn("truncate", ENGINE_BRAND[forcedEngine] || (forcedEngine === "auto" && "text-[12px] font-semibold text-[color:var(--amber)]"))}>
                 {forcedEngine === "hok" ? (
                   <span className="inline-flex items-center gap-1.5 rounded-md bg-black px-1.5 py-0.5">
                     <span className="hok-h">Hok</span>
-                    <span className="hok-orq">Orquestrador</span>
+                            <span className="hok-orq">OS</span>
                   </span>
                 ) : forcedEngine === "opencode" ? (
                   <span className="inline-flex items-center rounded-md bg-black px-1.5 py-[3px] shadow-[0_0_0_1px_rgb(255_255_255/0.08)]">
@@ -1230,7 +1234,7 @@ export function ChatScreen() {
                         {opt.id === "hok" ? (
                           <span className="inline-flex items-center gap-1.5 rounded-md bg-black px-1.5 py-0.5">
                             <span className="hok-h">Hok</span>
-                            <span className="hok-orq">Orquestrador</span>
+                    <span className="hok-orq">OS</span>
                             {opt.sub && <span className="text-[9px] text-white/70">({opt.sub})</span>}
                           </span>
                         ) : opt.id === "opencode" ? (

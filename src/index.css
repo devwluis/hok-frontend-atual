@@ -332,8 +332,8 @@
    Renderizado como <img> dentro do chip preto no ChatScreen. */
 .engine-brand-claude {
   font-family: 'PressStart2P', monospace;
-  font-size: 10px;
-  letter-spacing: 1px;
+  font-size: 9px;
+  letter-spacing: 0.5px;
   text-transform: uppercase;
   color: #E8714A;
   text-shadow: 1px 1px 0 #8C3D1E;
