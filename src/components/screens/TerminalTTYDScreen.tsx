@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw, Copy, Square, ClipboardCopy, ClipboardPaste, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx, DOCK_CLEAR_PX } from "@/lib/shell-layers";
+import { BUILD_ID } from "@/lib/build-info";
 import { TERMINAL_THEMES, readTerminalTheme } from "./SettingsScreen";
 
 const RENEW_MARGIN_S = 60;
@@ -1048,6 +1049,9 @@ export function TerminalTTYDScreen() {
             <p className="mt-0.5 flex items-center gap-1.5 truncate text-[9px]" style={{ color: "var(--hok-muted)" }}>
               <span className={err ? "text-red-400" : url ? "text-emerald-400" : "text-amber-400"}>● {err ? "ERRO" : url ? "LIVE" : "conectando…"}</span>
               <span className="truncate">· {tabs.ids.length} sess{tabs.ids.length > 1 ? "ões" : "ão"}</span>
+              {/* BUILD VISÍVEL (25/08): elimina a dúvida "qual bundle está no meu
+                  celular?" — o hash aparece direto no cabeçalho do terminal. */}
+              <span className="shrink-0 font-mono text-[8px] opacity-70" data-testid="term-build">· b.{BUILD_ID.slice(0, 7)}</span>
             </p>
           </div>
         </div>
