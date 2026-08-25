@@ -756,6 +756,9 @@ export function TerminalTTYDScreen() {
   const [coarse] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
   const gestureRef = useRef({ y: 0, t0: 0, active: false, moved: false });
   const gestureAccRef = useRef(0);
+  const gesturePosRef = useRef(0); // posição estimada no histórico (goto absoluto)
+  const gestureLastSentRef = useRef(0);
+  const sbHistoryRef = useRef(0); // espelho do history p/ clamp do gesto
 
   const sbApi = useCallback(
     async (action: string, amount?: number): Promise<{ history: number; height: number; pos: number } | null> => {
@@ -798,6 +801,11 @@ export function TerminalTTYDScreen() {
             ? Math.min(1, Math.max(0, 1 - info.pos / info.history))
             : 1,
       }));
+      // ressincroniza a posição estimada do gesto com a real do tmux
+      if (!sbDraggingRef.current) {
+        sbHistoryRef.current = info.history;
+        gesturePosRef.current = info.pos >= 0 ? info.pos : 0;
+      }
     };
     void probe();
     const t = setInterval(probe, 2500);
@@ -826,15 +834,28 @@ export function TerminalTTYDScreen() {
       if (Math.abs(gestureAccRef.current) < 14) return;
       // conteúdo segue o dedo: arrastar p/ BAIXO revela histórico mais antigo
       const lines = Math.max(1, Math.min(8, Math.round(Math.abs(gestureAccRef.current) / 12)));
-      const dir = gestureAccRef.current > 0 ? "up" : "down";
+      const dir = gestureAccRef.current > 0 ? 1 : -1;
       gestureAccRef.current = 0;
       flashSb();
+      // SCROLL FIX 2b (25/08): usa GOTO absoluto em vez de up/down — o backend
+      // manda `send-keys -X scroll-up <n>` (contagem posicional), forma que o
+      // tmux ignora silenciosamente (up/down testados: ok:true, pos não muda).
+      // goto-line <n> funciona e é auto-corretivo. Posição estimada localmente,
+      // ressincronizada pela sonda de 2,5s.
       void (async () => {
         if (!sbEnteredRef.current) {
           await sbApi("enter");
           sbEnteredRef.current = true;
+          // o tmux precisa de um instante para entrar em copy-mode — um -X
+          // imediato corre risco de "not in a mode" (observado em produção).
+          await new Promise((r) => setTimeout(r, 140));
         }
-        await sbApi(dir, lines);
+        const now = Date.now();
+        if (now - gestureLastSentRef.current < 90) return;
+        gestureLastSentRef.current = now;
+        const hist = Math.max(1, sbHistoryRef.current);
+        gesturePosRef.current = Math.min(hist, Math.max(0, gesturePosRef.current + dir * lines));
+        await sbApi("goto", gesturePosRef.current);
       })();
     },
     [sbApi, flashSb],
@@ -871,6 +892,7 @@ export function TerminalTTYDScreen() {
       if (!sbEnteredRef.current) {
         await sbApi("enter");
         sbEnteredRef.current = true;
+        await new Promise((r) => setTimeout(r, 140)); // mesma corrida do gesto
       }
       await sbApi("goto", Math.round((1 - clamped) * sbDragHist.current));
     },
