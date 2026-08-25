@@ -276,6 +276,7 @@ export function TerminalTTYDScreen() {
   const [extraGroup, setExtraGroup] = useState(false);
   useEffect(() => () => {
     nudgeTimersRef.current.forEach(clearTimeout);
+    if (sbFlashTimer.current) clearTimeout(sbFlashTimer.current); // REVIEW FIX: sem timer órfão
   }, []);
   // FIX medição (23/08): altura REAL da barra expandida via ResizeObserver →
   // reserva e deslocamento exatos (fim do estimate drift que cortava a
@@ -744,10 +745,11 @@ export function TerminalTTYDScreen() {
     }).catch(() => {});
   }, [themeIdx, url, serverBase, activeSession]);
 
-  // ── TESTE D — scrollbar do scrollback (dirigida por tmux copy-mode) ────
-  // O buffer vive dentro do iframe cross-origin: a barra é um overlay nosso
-  // que comanda o tmux (posição REAL via #{scroll_position}/#{history_size}).
-  // Em apps TUI (alternate screen) history=0 → auto-oculta.
+  // ── SCROLL FIX 2 — scrollbar do scrollback (dirigida por tmux copy-mode) ──
+  // O buffer vive dentro do iframe cross-origin: o indicador é um overlay
+  // nosso que comanda o tmux (posição REAL via #{scroll_position}/#{history_size}).
+  // SUTIL/TRANSITÓRIO: só aparece durante o gesto/arrasto (flash 0,9s).
+  // Em apps TUI (alternate screen) history=0 → inexistente.
   const [sb, setSb] = useState({ ratio: 1, dragging: false, history: 0 });
   const sbTrackRef = useRef<HTMLDivElement | null>(null);
   const sbLastSent = useRef(0);
@@ -832,7 +834,33 @@ export function TerminalTTYDScreen() {
     };
   }, [tokQ]);
 
+  // REVIEW FIX (25/08): trocar de aba = sessão tmux diferente — o estado de
+  // copy-mode (flag, posição estimada, enter em voo) não carrega entre sessões.
+  useEffect(() => {
+    sbEnteredRef.current = false;
+    enterPromiseRef.current = null;
+    gesturePosRef.current = 0;
+  }, [activeSession]);
+
   // ── SCROLL FIX 2 — handlers do gesto de toque (mobile) ──
+  // ── REVIEW FIX (25/08): enter de copy-mode SINGLE-FLIGHT — evita corrida de
+  // múltiplos `tmux copy-mode` concorrentes (cada re-entry resetava a posição
+  // no meio do gesto, causando jitter). Todas as origens (gesto, arrasto da
+  // barra) compartilham a mesma promessa.
+  const enterPromiseRef = useRef<Promise<void> | null>(null);
+  const ensureCopyMode = useCallback(async () => {
+    if (sbEnteredRef.current) return;
+    if (!enterPromiseRef.current) {
+      enterPromiseRef.current = (async () => {
+        await sbApi("enter");
+        sbEnteredRef.current = true;
+        // o tmux precisa de um instante para entrar em copy-mode — um -X
+        // imediato corre risco de "not in a mode" (observado em produção).
+        await new Promise((r) => setTimeout(r, 140));
+      })().finally(() => { enterPromiseRef.current = null; });
+    }
+    await enterPromiseRef.current;
+  }, [sbApi]);
   const onGestureStart = useCallback((e: React.TouchEvent) => {
     if (e.touches.length !== 1) return;
     gestureRef.current = { y: e.touches[0].clientY, t0: Date.now(), active: true, moved: false };
@@ -849,10 +877,16 @@ export function TerminalTTYDScreen() {
       g.y = y;
       gestureAccRef.current += dy;
       if (Math.abs(gestureAccRef.current) < 14) return;
+      // REVIEW FIX (25/08): throttle ANTES de consumir o acumulador — quando
+      // throttled, o acc é PRESERVADO e o próximo envio leva o total (antes,
+      // o acc era zerado e o envio descartado: movimento se perdia).
+      const now = Date.now();
+      if (now - gestureLastSentRef.current < 90) return;
       // conteúdo segue o dedo: arrastar p/ BAIXO revela histórico mais antigo
       const lines = Math.max(1, Math.min(8, Math.round(Math.abs(gestureAccRef.current) / 12)));
       const dir = gestureAccRef.current > 0 ? 1 : -1;
       gestureAccRef.current = 0;
+      gestureLastSentRef.current = now;
       flashSb();
       // SCROLL FIX 2b (25/08): usa GOTO absoluto em vez de up/down — o backend
       // manda `send-keys -X scroll-up <n>` (contagem posicional), forma que o
@@ -860,22 +894,21 @@ export function TerminalTTYDScreen() {
       // goto-line <n> funciona e é auto-corretivo. Posição estimada localmente,
       // ressincronizada pela sonda de 2,5s.
       void (async () => {
-        if (!sbEnteredRef.current) {
-          await sbApi("enter");
-          sbEnteredRef.current = true;
-          // o tmux precisa de um instante para entrar em copy-mode — um -X
-          // imediato corre risco de "not in a mode" (observado em produção).
-          await new Promise((r) => setTimeout(r, 140));
-        }
-        const now = Date.now();
-        if (now - gestureLastSentRef.current < 90) return;
-        gestureLastSentRef.current = now;
+        await ensureCopyMode();
         const hist = Math.max(1, sbHistoryRef.current);
         gesturePosRef.current = Math.min(hist, Math.max(0, gesturePosRef.current + dir * lines));
-        await sbApi("goto", gesturePosRef.current);
+        const r = await sbApi("goto", gesturePosRef.current);
+        // REVIEW FIX (25/08): auto-cura — se o copy-mode saiu por fora (digitar
+        // no teclado/barra sai do copy-mode e a flag ficava stale), o goto
+        // falha; reentra UMA vez e reaplica o mesmo destino.
+        if (r === null) {
+          sbEnteredRef.current = false;
+          await ensureCopyMode();
+          await sbApi("goto", gesturePosRef.current);
+        }
       })();
     },
-    [sbApi, flashSb],
+    [sbApi, flashSb, ensureCopyMode],
   );
   const onGestureEnd = useCallback(() => {
     const g = gestureRef.current;
@@ -886,6 +919,7 @@ export function TerminalTTYDScreen() {
       void (async () => {
         await sbApi("bottom");
         sbEnteredRef.current = false;
+        gesturePosRef.current = 0;
       })();
       focusTerminalInput();
     }
@@ -900,20 +934,26 @@ export function TerminalTTYDScreen() {
       sbLastSent.current = now;
       if (clamped >= 0.97) {
         await sbApi("top");
+        gesturePosRef.current = 0;
         return;
       }
       if (clamped <= 0.03) {
         await sbApi("bottom"); // exit copy-mode → volta ao vivo
+        sbEnteredRef.current = false;
+        gesturePosRef.current = 0;
         return;
       }
-      if (!sbEnteredRef.current) {
-        await sbApi("enter");
-        sbEnteredRef.current = true;
-        await new Promise((r) => setTimeout(r, 140)); // mesma corrida do gesto
+      await ensureCopyMode();
+      gesturePosRef.current = Math.round((1 - clamped) * sbDragHist.current);
+      const r = await sbApi("goto", gesturePosRef.current);
+      // REVIEW FIX: mesma auto-cura do gesto (copy-mode saiu por fora)
+      if (r === null) {
+        sbEnteredRef.current = false;
+        await ensureCopyMode();
+        await sbApi("goto", gesturePosRef.current);
       }
-      await sbApi("goto", Math.round((1 - clamped) * sbDragHist.current));
     },
-    [sbApi],
+    [sbApi, ensureCopyMode],
   );
 
   const sbOnPointerDown = useCallback(
@@ -926,7 +966,8 @@ export function TerminalTTYDScreen() {
         if (hist < 5) return; // TUI/alternate screen: nada a rolar
         sbDragHist.current = hist;
         sbEnteredRef.current = false;
-        setSb((s) => ({ ...s, visible: true, dragging: true, history: hist }));
+        gesturePosRef.current = 0;
+        setSb((s) => ({ ...s, dragging: true, history: hist }));
         const rect = sbTrackRef.current?.getBoundingClientRect();
         if (rect) void sbScrollTo(1 - (e.clientY - rect.top) / rect.height);
       })();
