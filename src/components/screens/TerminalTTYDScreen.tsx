@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw, Copy, Square, ClipboardCopy, ClipboardPaste, Power } from "lucide-react";
+import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw, Copy, Square, ClipboardCopy, ClipboardPaste, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx, DOCK_CLEAR_PX } from "@/lib/shell-layers";
 import { TERMINAL_THEMES, readTerminalTheme } from "./SettingsScreen";
@@ -583,12 +583,10 @@ export function TerminalTTYDScreen() {
       return { ids: [...ids, String(n)], active: String(n) };
     });
   }, []);
-  const closeTab = useCallback(
+  const detachTab = useCallback(
     (id: string) => {
-      // CLOSEFIX (25/08): fechar aba = só DETACH. NÃO mata a sessão tmux —
-      // fechar a última aba derrubava o server tmux inteiro (sessões de
-      // terceiros perdidas; caso CRM 25/08 10:11). Encerrar sessão agora é
-      // ação explícita separada (killSession, com confirmação).
+      // BUG3 (25/08): "sair sem encerrar" — ação explícita e separada: só
+      // remove a aba da visualização; a sessão tmux continua no servidor.
       setTabs(({ ids, active }) => {
         const next = ids.filter((x) => x !== id);
         if (!next.length) return { ids: ["ttyd"], active: "ttyd" }; // fallback neutro (não anexa sessão de terceiros)
@@ -598,24 +596,22 @@ export function TerminalTTYDScreen() {
     },
     [],
   );
-  const killSession = useCallback(
+  const closeTab = useCallback(
     (id: string) => {
+      // BUG3 (25/08): X = ENCERRAR a sessão de verdade em TODAS as abas
+      // (comportamento unificado, com confirmação pelo risco de encerrar
+      // sessão alheia por engano — caso CRM). "Sair sem encerrar" é o botão
+      // ⤴ separado (detachTab).
       const name = sessionNameOf(id);
-      // CLOSEFIX (25/08): morte de sessão só com confirmação explícita
-      if (!window.confirm(`Encerrar a sessão ${name}? Isso MATA o processo em execução nela (irreversível).`)) return;
+      if (!window.confirm(`Fechar a aba ${name} e ENCERRAR a sessão? Isso MATA o processo em execução nela (irreversível).`)) return;
       void fetch(`${serverBase}/terminal/ttyd/close?token=${encodeURIComponent(tokQ)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session: name }),
       }).catch(() => {});
-      setTabs(({ ids, active }) => {
-        const next = ids.filter((x) => x !== id);
-        if (!next.length) return { ids: ["ttyd"], active: "ttyd" };
-        const idx = ids.indexOf(id);
-        return { ids: next, active: active === id ? next[Math.max(0, idx - 1)] : active };
-      });
+      detachTab(id);
     },
-    [serverBase, tokQ],
+    [serverBase, tokQ, detachTab],
   );
 
   const sendToKeys = useCallback(
@@ -1123,25 +1119,25 @@ export function TerminalTTYDScreen() {
               <span
                 role="button"
                 tabIndex={0}
-                aria-label={`Fechar aba ${sessionNameOf(id)} (sessão continua no servidor)`}
-                data-testid={`term-close-${id}`}
-                onClick={(event) => { event.stopPropagation(); closeTab(id); }}
-                onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); closeTab(id); } }}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-50 transition-opacity hover:bg-white/10 hover:opacity-100"
+                aria-label={`Sair sem encerrar ${sessionNameOf(id)} (sessão continua no servidor)`}
+                title="Sair sem encerrar (sessão continua)"
+                data-testid={`term-detach-${id}`}
+                onClick={(event) => { event.stopPropagation(); detachTab(id); }}
+                onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); detachTab(id); } }}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-sky-300/70 opacity-40 transition-opacity hover:bg-sky-500/20 hover:text-sky-200 hover:opacity-100"
               >
-                <X size={12} />
+                <LogOut size={11} />
               </span>
               <span
                 role="button"
                 tabIndex={0}
-                aria-label={`Encerrar sessão ${sessionNameOf(id)} (mata o processo)`}
-                title="Encerrar sessão (mata o processo)"
-                data-testid={`term-kill-${id}`}
-                onClick={(event) => { event.stopPropagation(); killSession(id); }}
-                onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); killSession(id); } }}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-red-400/70 opacity-40 transition-opacity hover:bg-red-500/20 hover:text-red-300 hover:opacity-100"
+                aria-label={`Fechar aba e encerrar a sessão ${sessionNameOf(id)} (mata o processo)`}
+                data-testid={`term-close-${id}`}
+                onClick={(event) => { event.stopPropagation(); closeTab(id); }}
+                onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); closeTab(id); } }}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-red-400/70 opacity-50 transition-opacity hover:bg-red-500/20 hover:text-red-300 hover:opacity-100"
               >
-                <Power size={11} />
+                <X size={12} />
               </span>
             </button>
           );
