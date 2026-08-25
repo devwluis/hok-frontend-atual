@@ -910,20 +910,30 @@ export function TerminalTTYDScreen() {
     },
     [sbApi, flashSb, ensureCopyMode],
   );
-  const onGestureEnd = useCallback(() => {
-    const g = gestureRef.current;
-    if (!g.active) return;
-    g.active = false;
-    if (!g.moved && Date.now() - g.t0 < 400) {
-      // tap: volta ao vivo (sai do copy-mode) + foca o iframe → teclado abre
-      void (async () => {
-        await sbApi("bottom");
-        sbEnteredRef.current = false;
-        gesturePosRef.current = 0;
-      })();
-      focusTerminalInput();
-    }
-  }, [sbApi, focusTerminalInput]);
+  const onGestureEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const g = gestureRef.current;
+      if (!g.active) return;
+      g.active = false;
+      // KBFIX (25/08): o tap num elemento não-editável (overlay) faz o Chrome
+      // despachar mouse/click sintético que rouba o foco do iframe → teclado
+      // fecha durante a digitação. preventDefault no touchend (não-passivo no
+      // React) cancela o sintético; o refocus defensivo reforça o foco.
+      e.preventDefault();
+      if (!g.moved && Date.now() - g.t0 < 400) {
+        // tap: volta ao vivo (sai do copy-mode) + foca o iframe → teclado abre
+        void (async () => {
+          await sbApi("bottom");
+          sbEnteredRef.current = false;
+          gesturePosRef.current = 0;
+        })();
+        focusTerminalInput();
+        // refocus defensivo: vence qualquer roubo de foco assíncrono
+        setTimeout(() => focusTerminalInput(), 60);
+      }
+    },
+    [sbApi, focusTerminalInput],
+  );
 
   const sbScrollTo = useCallback(
     async (ratio: number) => {
