@@ -731,12 +731,31 @@ export function TerminalTTYDScreen() {
   // O buffer vive dentro do iframe cross-origin: a barra é um overlay nosso
   // que comanda o tmux (posição REAL via #{scroll_position}/#{history_size}).
   // Em apps TUI (alternate screen) history=0 → auto-oculta.
-  const [sb, setSb] = useState({ visible: false, ratio: 1, dragging: false, history: 0 });
+  const [sb, setSb] = useState({ ratio: 1, dragging: false, history: 0 });
   const sbTrackRef = useRef<HTMLDivElement | null>(null);
   const sbLastSent = useRef(0);
   const sbDragHist = useRef(0);
   const sbEnteredRef = useRef(false);
   const sbDraggingRef = useRef(false);
+  // SCROLL FIX 2 (25/08): indicador SUTIL da scrollbar — só aparece DURANTE o
+  // gesto (padrão iOS/Android) e some sozinho. Nada de barra fixa na tela.
+  const [sbFlash, setSbFlash] = useState(false);
+  const sbFlashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const flashSb = useCallback(() => {
+    setSbFlash(true);
+    if (sbFlashTimer.current) clearTimeout(sbFlashTimer.current);
+    sbFlashTimer.current = setTimeout(() => setSbFlash(false), 900);
+  }, []);
+  // SCROLL FIX 2 (25/08): gesto de TOQUE real no mobile. O iframe é cross-origin
+  // (touch nunca chega ao pai e xterm.js não converte touch em mouse report),
+  // então uma camada transparente sobre o terminal captura o swipe e traduz
+  // em copy-mode (up/down) — conteúdo segue o dedo. Tap curto = volta ao vivo
+  // (sai do copy-mode) + foca o iframe (abre o teclado, mesmo mecanismo do
+  // maximizar). Ativa só em ponteiro COARSE (mobile) e quando há histórico
+  // (TUI/alt-screen history=0 → camada inexistente, app TUI recebe o toque).
+  const [coarse] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
+  const gestureRef = useRef({ y: 0, t0: 0, active: false, moved: false });
+  const gestureAccRef = useRef(0);
 
   const sbApi = useCallback(
     async (action: string, amount?: number): Promise<{ history: number; height: number; pos: number } | null> => {
@@ -773,7 +792,6 @@ export function TerminalTTYDScreen() {
       if (!alive || !info) return;
       setSb((s) => ({
         ...s,
-        visible: info.history > 5,
         history: info.history,
         ratio:
           info.pos >= 0 && info.history > 0
@@ -788,6 +806,52 @@ export function TerminalTTYDScreen() {
       clearInterval(t);
     };
   }, [tokQ]);
+
+  // ── SCROLL FIX 2 — handlers do gesto de toque (mobile) ──
+  const onGestureStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    gestureRef.current = { y: e.touches[0].clientY, t0: Date.now(), active: true, moved: false };
+    gestureAccRef.current = 0;
+  }, []);
+  const onGestureMove = useCallback(
+    (e: React.TouchEvent) => {
+      const g = gestureRef.current;
+      if (!g.active || e.touches.length !== 1) return;
+      const y = e.touches[0].clientY;
+      const dy = y - g.y;
+      if (Math.abs(dy) < 5) return;
+      g.moved = true;
+      g.y = y;
+      gestureAccRef.current += dy;
+      if (Math.abs(gestureAccRef.current) < 14) return;
+      // conteúdo segue o dedo: arrastar p/ BAIXO revela histórico mais antigo
+      const lines = Math.max(1, Math.min(8, Math.round(Math.abs(gestureAccRef.current) / 12)));
+      const dir = gestureAccRef.current > 0 ? "up" : "down";
+      gestureAccRef.current = 0;
+      flashSb();
+      void (async () => {
+        if (!sbEnteredRef.current) {
+          await sbApi("enter");
+          sbEnteredRef.current = true;
+        }
+        await sbApi(dir, lines);
+      })();
+    },
+    [sbApi, flashSb],
+  );
+  const onGestureEnd = useCallback(() => {
+    const g = gestureRef.current;
+    if (!g.active) return;
+    g.active = false;
+    if (!g.moved && Date.now() - g.t0 < 400) {
+      // tap: volta ao vivo (sai do copy-mode) + foca o iframe → teclado abre
+      void (async () => {
+        await sbApi("bottom");
+        sbEnteredRef.current = false;
+      })();
+      focusTerminalInput();
+    }
+  }, [sbApi, focusTerminalInput]);
 
   const sbScrollTo = useCallback(
     async (ratio: number) => {
@@ -1073,16 +1137,17 @@ export function TerminalTTYDScreen() {
             Reconectando…
           </div>
         )}
-        {/* SCROLL FIX (25/08) — scrollbar do scrollback: fina e SEMPRE visível
-            quando há histórico (sonda /terminal/ttyd/scroll a cada 2,5s).
-            Arrastar = goto via copy-mode; fundo = volta ao vivo. No desktop a
-            roda também rola (tmux mouse on) e o thumb acompanha. */}
+        {/* SCROLL FIX 2 (25/08) — scrollbar SUTIL: invisível em repouso,
+            aparece só durante o gesto/arrasto (padrão mobile nativo) e some
+            depois de ~0,9s. Arrastar = goto via copy-mode; fundo = volta ao
+            vivo. No desktop a roda rola direto (tmux mouse on) e o thumb
+            acompanha durante o flash. */}
         <div
           ref={sbTrackRef}
           data-testid="term-scrollbar"
           className={cn(
             "absolute inset-y-0 right-0 w-6 touch-none select-none transition-opacity duration-300",
-            sb.visible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+            sbFlash || sb.dragging ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
           )}
           style={{ zIndex: SHELL_Z.terminalScrollbar }}
           onPointerDown={sbOnPointerDown}
@@ -1090,10 +1155,10 @@ export function TerminalTTYDScreen() {
           onPointerUp={sbOnPointerUp}
           onPointerCancel={sbOnPointerUp}
         >
-          <div className="absolute inset-y-1 right-1 w-[5px] rounded-full bg-emerald-900/40" />
+          <div className="absolute inset-y-1 right-1 w-[4px] rounded-full bg-emerald-200/25" />
           <div
             data-testid="term-scrollbar-thumb"
-            className="absolute right-0.5 w-[7px] rounded-full bg-emerald-400/60 shadow-[0_0_6px_rgb(16_185_129/0.4)]"
+            className="absolute right-0.5 w-[6px] rounded-full bg-emerald-200/60"
             style={{
               height: sbThumbH,
               top: `calc(${(1 - sb.ratio) * 100}% - ${(1 - sb.ratio) * sbThumbH}px)`,
@@ -1105,6 +1170,21 @@ export function TerminalTTYDScreen() {
             </div>
           )}
         </div>
+        {/* SCROLL FIX 2 (25/08) — camada de GESTO (mobile/coarse): captura o
+            swipe e traduz em copy-mode; tap curto volta ao vivo + foca o
+            iframe (teclado). Só existe quando há histórico real (history>5):
+            em TUI/alt-screen o toque vai direto ao iframe. */}
+        {coarse && sb.history > 5 && !recovering && (
+          <div
+            data-testid="term-gesture"
+            className="absolute inset-0 touch-none"
+            style={{ zIndex: Math.max(1, SHELL_Z.terminalScrollbar - 1) }}
+            onTouchStart={onGestureStart}
+            onTouchMove={onGestureMove}
+            onTouchEnd={onGestureEnd}
+            onTouchCancel={onGestureEnd}
+          />
+        )}
         {err ? (
           <div className="p-3 text-[11px] text-red-300">⚠️ {err}</div>
         ) : url ? (
