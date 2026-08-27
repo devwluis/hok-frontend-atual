@@ -635,12 +635,15 @@ export function ChatScreen() {
     if (forcedEngine === "hermes") return "Hermes";
     if (forcedEngine === "claude") return "Claude Code";
     if (forcedEngine === "opencode") return "OpenCode";
+    if (forcedEngine === "hok") return "Hok OS";
     if (forcedEngine !== "auto") return null;
     if (resolvedEngine === "hermes") return "Hermes";
     if (resolvedEngine === "claude_code") return "Claude Code";
     if (resolvedEngine === "opencode" || resolvedEngine === "opencode_serve") return "OpenCode";
     if (resolvedEngine === "chat") return "Hok OS";
-    return null;
+    // auto com engine ainda não resolvido (o engine_used chega só com a
+    // resposta) → o padrão do modo automático é o Hok OS.
+    return "Hok OS";
   })();
 
   // Load messages when conversation changes
@@ -649,6 +652,71 @@ export function ChatScreen() {
     if (!conversationId) { setMessages([]); return; }
     const conv = conversationsStore.get(conversationId);
     setMessages(conv ? (conv.messages as Msg[]) : []);
+  }, [conversationId]);
+
+  // FASE MAIOR (27/08): retomada de job em background — ao voltar para a aba
+  // (ou reabrir o app), verifica se há job ativo para a conversa: running →
+  // retoma o polling (bolha "processando"); done → traz a resposta que foi
+  // produzida enquanto a aba estava fechada.
+  useEffect(() => {
+    if (!conversationId) return;
+    let cancelled = false;
+    const { serverUrl, token } = readSettings();
+    if (!serverUrl) return;
+    (async () => {
+      try {
+        const res = await fetch(`${serverUrl}/chat/job?conv_id=${encodeURIComponent(conversationId)}`, {
+          headers: { "X-Hok-Token": token },
+        });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { jobs?: { job_id?: string; status?: string; reply?: string; engine?: string; model_used?: string; pending_action?: PendingAction | null }[] };
+        const latest = data.jobs?.[0];
+        if (!latest || !latest.job_id || cancelled) return;
+        if (latest.status === "running") {
+          // retoma o polling com a bolha de processamento
+          setLoading(true);
+          const assistantId = crypto.randomUUID();
+          for (;;) {
+            if (cancelled || abortRef.current?.signal.aborted) return;
+            await new Promise((r) => setTimeout(r, 2000));
+            const jr = await fetch(`${serverUrl}/chat/job?id=${encodeURIComponent(latest.job_id)}`, {
+              headers: { "X-Hok-Token": token },
+            });
+            if (!jr.ok) continue;
+            const job = (await jr.json()) as { status?: string; reply?: string; pending_action?: PendingAction | null };
+            if (job.status === "done") {
+              if (cancelled) return;
+              if (job.pending_action) {
+                pendingActionRef.current = job.pending_action;
+                setPendingAction(job.pending_action);
+              }
+              const text = job.reply ?? "";
+              setMessages((prev) => {
+                if (prev.some((m) => m.text === text)) return prev;
+                const next = [...prev, { id: assistantId, role: "assistant" as const, text: text || "…" }];
+                persist(next, conversationId);
+                return next;
+              });
+              setLoading(false);
+              return;
+            }
+          }
+        } else if (latest.status === "done" && latest.reply) {
+          if (latest.pending_action) {
+            pendingActionRef.current = latest.pending_action;
+            setPendingAction(latest.pending_action);
+          }
+          const doneText = latest.reply ?? "";
+          setMessages((prev) => {
+            if (prev.some((m) => m.text === doneText)) return prev;
+            const next = [...prev, { id: crypto.randomUUID(), role: "assistant" as const, text: doneText }];
+            persist(next, conversationId);
+            return next;
+          });
+        }
+      } catch { /* job expirado/falha de rede: silencioso */ }
+    })();
+    return () => { cancelled = true; };
   }, [conversationId]);
 
   // ── Persistência de estado (conversa ativa, rascunho e scroll por conversa) ──
@@ -794,11 +862,6 @@ export function ChatScreen() {
     // nunca retornar.
     if ((!t && attachments.length === 0) || loadingRef.current || loading) return;
     loadingRef.current = true;
-    const sendWatchdog = setTimeout(() => {
-      loadingRef.current = false;
-      setLoading(false);
-    }, 180_000);
-
     setError(null);
     let id = conversationId;
     if (!id) {
@@ -864,51 +927,73 @@ export function ChatScreen() {
     ];
 
     try {
-      const { streamChat } = await import("@/lib/chat-stream");
-      await streamChat({
-        baseUrl,
-        endpointPath,
-        token,
-        conversationId,
-        webSearch,
+      // FASE MAIOR (27/08): envio ASYNC — o backend cria um job em background
+      // que sobrevive à desconexão da aba/app; este fluxo faz polling em
+      // GET /chat/job até o job terminar. A bolha "processando" é dirigida
+      // pelo status do job (o antigo sendWatchdog de 180s foi removido).
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (serverUrl) headers["X-Hok-Token"] = token;
+      else headers["Authorization"] = "Bearer " + token;
+      if (id) headers["X-Conversation-Id"] = id;
+
+      const lastUserMessage = [...outMessages].reverse().find((m) => m.role === "user")?.content ?? "";
+      const bodyObj: Record<string, unknown> = {
+        message: lastUserMessage,
+        messages: outMessages,
+        history: outMessages,
+        model: selectedModel,
+        webSearch: !!webSearch,
         forceClaudeCode: forcedEngine === "claude",
         forceHermes: forcedEngine === "hermes",
         forceOpenCode: forcedEngine === "opencode",
-        selectedModel,
-        messages: outMessages,
-        terminalSession: undefined,
-        imageB64,
-        imageMime: imageB64 ? imageMime : undefined,
-        audioB64,
-        audioMime: audioB64 ? audioMime : undefined,
-        onPendingAction: (pa) => { pendingActionRef.current = pa; setPendingAction(pa); setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, pendingAction: pa } : m)); },
-        onEngineUsed: (eng) => {
-          if (eng === "hermes" || eng === "claude_code" || eng === "opencode" || eng === "opencode_serve" || eng === "chat") setResolvedEngine(eng);
-        },
-        onModelUsed: (mu) => {
-          if (!mu || mu === "auto") return;
-          setActiveModelId((prev) => {
-            if (mu === prev) return prev;
-            if (lastToastModelRef.current !== mu) {
-              lastToastModelRef.current = mu;
-              setModelToast(`Modelo trocado automaticamente para ${mu} — ${prev} estava indisponível`);
-              setTimeout(() => setModelToast(null), 6000);
-            }
-            return mu;
-          });
-        },
-        signal: abortRef.current.signal,
-        onToken: (delta) => {
-          accRef.current += delta;
-          const text = accRef.current;
+        ...(imageB64 ? { image_b64: imageB64, image_mime: imageMime || "image/jpeg" } : {}),
+        ...(audioB64 ? { audio_b64: audioB64, audio_mime: audioMime || "audio/webm" } : {}),
+        async: true,
+      };
+      const res = await fetch(`${baseUrl}${endpointPath}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(bodyObj),
+        signal: abortRef.current?.signal,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const start = (await res.json()) as { job_id?: string; reply?: string; mode?: string; pendingAction?: PendingAction | null };
+
+      const applyResult = (replyText: string, engine?: string, modelUsed?: string, pending?: PendingAction | null) => {
+        if (pending) {
+          pendingActionRef.current = pending;
+          setPendingAction(pending);
+          setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, pendingAction: pending } : m)));
+        }
+        if (engine === "hermes" || engine === "claude_code" || engine === "opencode" || engine === "opencode_serve" || engine === "chat") setResolvedEngine(engine);
+        if (modelUsed && modelUsed !== "auto") setActiveModelId(modelUsed);
+        if (replyText) {
+          accRef.current = replyText;
           setMessages((prev) => {
             const exists = prev.some((m) => m.id === assistantId);
-            return exists
-              ? prev.map((m) => (m.id === assistantId ? { ...m, text } : m))
-              : [...prev, { id: assistantId, role: "assistant" as const, text }];
+            return exists ? prev.map((m) => (m.id === assistantId ? { ...m, text: replyText } : m)) : [...prev, { id: assistantId, role: "assistant" as const, text: replyText }];
           });
-        },
-      });
+        }
+      };
+
+      if (start.job_id) {
+        for (;;) {
+          if (abortRef.current?.signal.aborted) throw new DOMException("aborted", "AbortError");
+          await new Promise((r) => setTimeout(r, 2000));
+          const jr = await fetch(`${baseUrl}/chat/job?id=${encodeURIComponent(start.job_id)}`, {
+            headers,
+            signal: abortRef.current?.signal,
+          });
+          if (!jr.ok) continue;
+          const job = (await jr.json()) as { status?: string; reply?: string; mode?: string; engine?: string; model_used?: string; pending_action?: PendingAction | null };
+          if (job.status === "done") {
+            applyResult(job.reply ?? "", job.engine, job.model_used, job.pending_action ?? null);
+            break;
+          }
+        }
+      } else {
+        applyResult(start.reply ?? "", undefined, undefined, start.pendingAction ?? null);
+      }
 
       const ms = performance.now() - startedAt;
       const final: Msg = {
@@ -933,7 +1018,6 @@ export function ChatScreen() {
         }
       }
     } finally {
-      clearTimeout(sendWatchdog);
       loadingRef.current = false;
       setLoading(false);
       abortRef.current = null;
