@@ -861,7 +861,7 @@ export function ChatScreen() {
         forceOpenCode: forcedEngine === "opencode",
         selectedModel,
         messages: outMessages,
-        terminalSession: activeTerminalSession(),
+        terminalSession: undefined,
         imageB64,
         imageMime: imageB64 ? imageMime : undefined,
         audioB64,

@@ -212,13 +212,50 @@ export function TerminalTTYDScreen() {
   // iframe.focus() feito DENTRO do gesto de toque delega o foco ao elemento
   // ativo do iframe (textarea do xterm) e o Chromium abre o IME.
   const iframeElRef = useRef<HTMLIFrameElement | null>(null);
+  // KBDIAG (27/08): buffer de diagnóstico só de foco, isolado, sem afetar
+  // nenhum comportamento existente. window.__KB_DIAG para exportar via console.
+  const kbDiagRef = useRef<{ t: number; ev: string; detail: string }[]>([]);
+  const kbDiagPush = useCallback((ev: string, detail: string) => {
+    kbDiagRef.current.push({ t: Date.now(), ev, detail });
+    if (kbDiagRef.current.length > 200) kbDiagRef.current.shift();
+  }, []);
+  useEffect(() => {
+    (window as unknown as { __KB_DIAG?: unknown }).__KB_DIAG = {
+      dump: () => kbDiagRef.current.map(
+        (e) => `${new Date(e.t).toISOString().slice(11, 23)} ${e.ev} ${e.detail}`
+      ).join("\n"),
+      clear: () => { kbDiagRef.current = []; },
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName ?? "?";
+      const isIframe = e.target === iframeElRef.current;
+      kbDiagPush("focusin", `target=${tag} isIframe=${isIframe}`);
+    };
+    const onFocusOut = (e: FocusEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName ?? "?";
+      const isIframe = e.target === iframeElRef.current;
+      kbDiagPush("focusout", `target=${tag} isIframe=${isIframe}`);
+    };
+    const onVis = () => kbDiagPush("visibilitychange", `hidden=${document.hidden}`);
+    window.addEventListener("focusin", onFocusIn, true);
+    window.addEventListener("focusout", onFocusOut, true);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("focusin", onFocusIn, true);
+      window.removeEventListener("focusout", onFocusOut, true);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [kbDiagPush]);
   const focusTerminalInput = useCallback(() => {
     try {
+      const before = document.activeElement === iframeElRef.current;
       iframeElRef.current?.focus({ preventScroll: true });
-    } catch {
-      /* noop */
+      const after = document.activeElement === iframeElRef.current;
+      kbDiagPush("focusTerminalInput", `alreadyFocused=${before} nowFocused=${after}`);
+    } catch (e) {
+      kbDiagPush("focusTerminalInput-err", String((e as Error)?.message ?? e));
     }
-  }, []);
+  }, [kbDiagPush]);
   const nudgeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   // FIX tremor v2 (24/08): UM único nudge por carga do iframe (o FitAddon
   // mede antes da fonte carregar). As rodadas anteriores disparavam DOIS
@@ -275,6 +312,9 @@ export function TerminalTTYDScreen() {
   }, [focusTerminalInput]);
 
   const [extraGroup, setExtraGroup] = useState(false);
+  // KBDIAG (27/08): painel visual do dump, sem depender de DevTools.
+  const [kbDiagVisible, setKbDiagVisible] = useState(false);
+  const [kbDiagText, setKbDiagText] = useState("");
   useEffect(() => () => {
     nudgeTimersRef.current.forEach(clearTimeout);
     if (sbFlashTimer.current) clearTimeout(sbFlashTimer.current); // REVIEW FIX: sem timer órfão
@@ -588,6 +628,18 @@ export function TerminalTTYDScreen() {
     (id: string) => {
       // BUG3 (25/08): "sair sem encerrar" — ação explícita e separada: só
       // remove a aba da visualização; a sessão tmux continua no servidor.
+      // FIX 27/08 (terminal_active): limpa o registro de sessão ativa no
+      // servidor (sem matar a sessão) — o registro deve refletir "terminal
+      // aberto agora", senão a exceção §2.1 do opencode serve dispara
+      // permanentemente após o primeiro uso do terminal.
+      const name = sessionNameOf(id);
+      if (name) {
+        void fetch(`${serverBase}/terminal/ttyd/detach?token=${encodeURIComponent(tokQ)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session: name }),
+        }).catch(() => {});
+      }
       setTabs(({ ids, active }) => {
         const next = ids.filter((x) => x !== id);
         if (!next.length) return { ids: ["ttyd"], active: "ttyd" }; // fallback neutro (não anexa sessão de terceiros)
@@ -770,6 +822,14 @@ export function TerminalTTYDScreen() {
   // maximizar). Ativa só em ponteiro COARSE (mobile) e quando há histórico
   // (TUI/alt-screen history=0 → camada inexistente, app TUI recebe o toque).
   const [coarse] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
+  // FIX SCROLL TUI: scroll por wheel SGR — ativa quando o app do painel tem
+  // mouse reporting ativo (mouse_any_flag=1 do tmux). Injetamos wheel no
+  // mesmo caminho que a roda física no desktop: o tmux forward ao app que
+  // pediu mouse. Apps como claude classic (mouse_any=0) não recebem wheel
+  // (evita lixo no input); apps como opencode (mouse_any=1) recebem
+  // corretamente e o scroll funciona.
+  const [sbMouse, setSbMouse] = useState(false); // mouse_any flag do painel
+  const tuiWheelMode = sbMouse; // true quando app tem mouse reporting ativo
   const gestureRef = useRef({ y: 0, t0: 0, active: false, moved: false });
   const gestureAccRef = useRef(0);
   const gesturePosRef = useRef(0); // posição estimada no histórico (goto absoluto)
@@ -777,7 +837,7 @@ export function TerminalTTYDScreen() {
   const sbHistoryRef = useRef(0); // espelho do history p/ clamp do gesto
 
   const sbApi = useCallback(
-    async (action: string, amount?: number): Promise<{ history: number; height: number; pos: number } | null> => {
+    async (action: string, amount?: number): Promise<{ history: number; height: number; pos: number; mouse_any?: boolean } | null> => {
       try {
         const res = await fetch(`${serverBase}/terminal/ttyd/scroll?token=${encodeURIComponent(tokQ)}`, {
           method: "POST",
@@ -809,6 +869,7 @@ export function TerminalTTYDScreen() {
       if (sbDraggingRef.current || document.hidden) return;
       const info = await sbInfoRef.current("info");
       if (!alive || !info) return;
+      setSbMouse(info.mouse_any === true);
       setSb((s) => ({
         ...s,
         history: info.history,
@@ -885,6 +946,13 @@ export function TerminalTTYDScreen() {
       gestureAccRef.current = 0;
       gestureLastSentRef.current = now;
       flashSb();
+      // FIX SCROLL TUI: app gerencia o próprio buffer → wheel report SGR
+      // direto ao painel (sem copy-mode: nada congela, duplica ou prende
+      // teclado). Mesmo caminho da roda física no desktop.
+      if (tuiWheelMode) {
+        void sbApi("wheel", dir * lines);
+        return;
+      }
       // SCROLL FIX 2b (25/08): usa GOTO absoluto em vez de up/down — o backend
       // manda `send-keys -X scroll-up <n>` (contagem posicional), forma que o
       // tmux ignora silenciosamente (up/down testados: ok:true, pos não muda).
@@ -905,7 +973,7 @@ export function TerminalTTYDScreen() {
         }
       })();
     },
-    [sbApi, flashSb, ensureCopyMode],
+    [sbApi, flashSb, ensureCopyMode, tuiWheelMode],
   );
   const onGestureEnd = useCallback(
     (e: React.TouchEvent) => {
@@ -969,6 +1037,7 @@ export function TerminalTTYDScreen() {
       sbDraggingRef.current = true;
       void (async () => {
         const info = await sbApi("info");
+        setSbMouse(info?.mouse_any === true);
         const hist = info?.history ?? 0;
         if (hist < 5) return; // TUI/alternate screen: nada a rolar
         sbDragHist.current = hist;
@@ -1276,7 +1345,7 @@ export function TerminalTTYDScreen() {
             swipe e traduz em copy-mode; tap curto volta ao vivo + foca o
             iframe (teclado). Só existe quando há histórico real (history>5):
             em TUI/alt-screen o toque vai direto ao iframe. */}
-        {coarse && sb.history > 5 && !recovering && (
+        {coarse && (sb.history > 5 || tuiWheelMode) && !recovering && (
           <div
             data-testid="term-gesture"
             className="absolute inset-0 touch-none"
@@ -1321,6 +1390,22 @@ export function TerminalTTYDScreen() {
           />
         ) : (
           <div className="p-3 text-[11px] text-emerald-300/70">Carregando terminal…</div>
+        )}
+        {kbDiagVisible && (
+          <div
+            className="absolute inset-2 z-[9999] flex flex-col rounded-lg border border-emerald-700 bg-black/95 p-2"
+            onClick={() => setKbDiagVisible(false)}
+          >
+            <div className="mb-1 flex items-center justify-between text-[10px] text-emerald-300">
+              <span>KB DIAG (toque para fechar)</span>
+            </div>
+            <textarea
+              readOnly
+              value={kbDiagText}
+              className="flex-1 resize-none rounded border border-emerald-800/50 bg-black p-1.5 font-mono text-[9px] text-emerald-200"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
         )}
       </div>
       {/* TESTE 1 v2 — barra de teclas MINIMIZÁVEL estilo Termius:
