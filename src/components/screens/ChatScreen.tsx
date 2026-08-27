@@ -484,7 +484,7 @@ export function ChatScreen() {
   const [selectedModel, setSelectedModel] = useState<string>(() => readModelSelection()?.modelId ?? "auto");
   const [n8nMode, setN8nMode] = useState<N8NModeState>("off");
   const [forcedEngine, setForcedEngine] = useState<EngineId>(() => readModelSelection()?.engine ?? readForcedEngine());
-  const [resolvedEngine, setResolvedEngine] = useState<"claude_code" | "hermes" | null>(null);
+  const [resolvedEngine, setResolvedEngine] = useState<"claude_code" | "hermes" | "opencode" | "opencode_serve" | "chat" | null>(null);
   const [showEnginePicker, setShowEnginePicker] = useState(false);
   const [showModelsPicker, setShowModelsPicker] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -627,6 +627,21 @@ export function ChatScreen() {
 
   const activeModel = getModel(selectedModel);
   const engineLabel = ENGINE_OPTIONS.find((o) => o.id === forcedEngine)?.label ?? "Hok OS";
+
+  // Nome do engine para o card "processando" do efeito Núcleo — cobre os
+  // engines que o resolvedEngine reconhece (Hermes, Claude Code, OpenCode —
+  // serve e CLI — e o chat padrão "Hok OS"); null mantém o rótulo genérico.
+  const processingEngineName: string | null = (() => {
+    if (forcedEngine === "hermes") return "Hermes";
+    if (forcedEngine === "claude") return "Claude Code";
+    if (forcedEngine === "opencode") return "OpenCode";
+    if (forcedEngine !== "auto") return null;
+    if (resolvedEngine === "hermes") return "Hermes";
+    if (resolvedEngine === "claude_code") return "Claude Code";
+    if (resolvedEngine === "opencode" || resolvedEngine === "opencode_serve") return "OpenCode";
+    if (resolvedEngine === "chat") return "Hok OS";
+    return null;
+  })();
 
   // Load messages when conversation changes
   useEffect(() => {
@@ -868,7 +883,7 @@ export function ChatScreen() {
         audioMime: audioB64 ? audioMime : undefined,
         onPendingAction: (pa) => { pendingActionRef.current = pa; setPendingAction(pa); setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, pendingAction: pa } : m)); },
         onEngineUsed: (eng) => {
-          if (eng === "hermes" || eng === "claude_code") setResolvedEngine(eng);
+          if (eng === "hermes" || eng === "claude_code" || eng === "opencode" || eng === "opencode_serve" || eng === "chat") setResolvedEngine(eng);
         },
         onModelUsed: (mu) => {
           if (!mu || mu === "auto") return;
@@ -961,9 +976,9 @@ export function ChatScreen() {
             >
               <div className="rounded-[20px] rounded-bl-md border border-border bg-card px-4">
                 <ElectricCore
-                  label={(forcedEngine === "hermes" || (forcedEngine === "auto" && resolvedEngine === "hermes")) ? <><b>Hermes</b> processando…</> : (forcedEngine === "claude" || (forcedEngine === "auto" && resolvedEngine === "claude_code")) ? <><b>Claude Code</b> processando…</> : "Processando requisição…"}
+                  label={processingEngineName ? <><b>{processingEngineName}</b> processando…</> : "Processando requisição…"}
                   modelName={activeModel.id !== "auto" ? activeModel.label : undefined}
-                  engine={forcedEngine !== "auto" ? (forcedEngine === "hok" ? "auto" : forcedEngine === "claude" ? "claude_code" : forcedEngine) : (resolvedEngine ?? "auto")}
+                  engine={forcedEngine !== "auto" ? (forcedEngine === "hok" ? "auto" : forcedEngine === "claude" ? "claude_code" : forcedEngine) : (resolvedEngine === "chat" ? "auto" : resolvedEngine === "opencode_serve" ? "opencode" : resolvedEngine ?? "auto")}
                 />
               </div>
             </motion.div>
