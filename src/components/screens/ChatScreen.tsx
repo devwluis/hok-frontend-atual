@@ -662,11 +662,15 @@ export function ChatScreen() {
     if (!conversationId) return;
     let cancelled = false;
     const { serverUrl, token } = readSettings();
-    if (!serverUrl) return;
+    // Mesma lógica do envio: sem "Server URL" configurado (app no próprio
+    // domínio, proxy nginx), usa window.location.origin — a retomada funciona
+    // nos dois cenários.
+    const baseUrl = serverUrl || window.location.origin;
+    const headers: Record<string, string> = { "Content-Type": "application/json", "X-Hok-Token": token };
     (async () => {
       try {
-        const res = await fetch(`${serverUrl}/chat/job?conv_id=${encodeURIComponent(conversationId)}`, {
-          headers: { "X-Hok-Token": token },
+        const res = await fetch(`${baseUrl}/chat/job?conv_id=${encodeURIComponent(conversationId)}`, {
+          headers,
         });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as { jobs?: { job_id?: string; status?: string; reply?: string; engine?: string; model_used?: string; pending_action?: PendingAction | null }[] };
@@ -679,8 +683,8 @@ export function ChatScreen() {
           for (;;) {
             if (cancelled || abortRef.current?.signal.aborted) return;
             await new Promise((r) => setTimeout(r, 2000));
-            const jr = await fetch(`${serverUrl}/chat/job?id=${encodeURIComponent(latest.job_id)}`, {
-              headers: { "X-Hok-Token": token },
+            const jr = await fetch(`${baseUrl}/chat/job?id=${encodeURIComponent(latest.job_id)}`, {
+              headers,
             });
             if (!jr.ok) continue;
             const job = (await jr.json()) as { status?: string; reply?: string; pending_action?: PendingAction | null };
@@ -913,7 +917,11 @@ export function ChatScreen() {
     }
 
     const baseUrl = serverUrl || window.location.origin;
-    const endpointPath = serverUrl ? "/chat/smart" : "/api/chat";
+    // /chat/smart SEMPRE (com ou sem Server URL): o nginx do próprio domínio
+    // já proxyia /chat/* para o backend. O antigo /api/chat (handleRoot) é
+    // síncrono e não tem o fluxo async/jobs — era o motivo da retomada não
+    // funcionar sem Server URL configurado.
+    const endpointPath = "/chat/smart";
     const assistantId = crypto.randomUUID();
     const startedAt = performance.now();
 
@@ -931,9 +939,7 @@ export function ChatScreen() {
       // que sobrevive à desconexão da aba/app; este fluxo faz polling em
       // GET /chat/job até o job terminar. A bolha "processando" é dirigida
       // pelo status do job (o antigo sendWatchdog de 180s foi removido).
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (serverUrl) headers["X-Hok-Token"] = token;
-      else headers["Authorization"] = "Bearer " + token;
+      const headers: Record<string, string> = { "Content-Type": "application/json", "X-Hok-Token": token };
       if (id) headers["X-Conversation-Id"] = id;
 
       const lastUserMessage = [...outMessages].reverse().find((m) => m.role === "user")?.content ?? "";
