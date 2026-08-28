@@ -1364,12 +1364,11 @@ export function ChatScreen() {
           </div>
         </div>
 
-        {/* MODE SELECTOR (29/08): Planejar/Construir/Autônomo/Total +
-        checkpoint + rollback + auto_rollback — estado via /session/mode */}
-        <ModeSelector conversationId={conversationId} />
-
-        {/* Row 2: + menu / textarea / tools */}
-        <div className="flex items-end gap-2 rounded-2xl border bg-popover px-2.5 py-2 transition-all focus-within:border-[color:var(--amber)] focus-within:shadow-[var(--shadow-amber-glow)]">
+        {/* Row 2: + menu / textarea / tools — o ModeSelector fica DENTRO da
+        caixa de mensagem, sempre visível (nunca dentro de menu suspenso). */}
+        <div className="rounded-2xl border bg-popover px-2.5 py-2 transition-all focus-within:border-[color:var(--amber)] focus-within:shadow-[var(--shadow-amber-glow)]">
+          <ModeSelector conversationId={conversationId} />
+          <div className="flex items-end gap-2">
           {/* + menu */}
           <div className="relative pb-0.5">
             <button
@@ -1510,6 +1509,7 @@ export function ChatScreen() {
                 <Send className="h-4 w-4" />
               </button>
             )}
+          </div>
           </div>
         </div>
       </div>
