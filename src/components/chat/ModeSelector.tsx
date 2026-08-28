@@ -23,9 +23,19 @@ interface ModeState {
   auto_rollback: boolean;
 }
 
+// Trava de segurança do modelo (29/08): o /models/catalog reporta o status
+// do modelo ativo; se sumiu da lista (expired) o badge avisa e o envio fica
+// bloqueado no backend até troca manual.
+const MODEL_STATUS_MSG: Record<string, string> = {
+  expired: "Modelo expirou",
+  paid: "Modelo agora é pago",
+  unavailable: "Modelo indisponível",
+};
+
 export default function ModeSelector({ conversationId }: { conversationId: string | null }) {
   const [st, setSt] = useState<ModeState>({ mode: "", autonomous_budget: 0, checkpoint_id: "", auto_rollback: false });
   const [budgetInput, setBudgetInput] = useState("");
+  const [modelStatus, setModelStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -57,6 +67,13 @@ export default function ModeSelector({ conversationId }: { conversationId: strin
       setErr(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "falha ao ler o modo");
+    }
+    // Trava de segurança: status do modelo ativo (ok/expired/paid/unavailable)
+    try {
+      const c = await api("/models/catalog");
+      setModelStatus(c.activeStatus || "ok");
+    } catch {
+      setModelStatus("");
     }
   }, [api]);
 
@@ -218,6 +235,11 @@ export default function ModeSelector({ conversationId }: { conversationId: strin
             atual: {st.autonomous_budget}
           </span>
         </>
+      )}
+      {modelStatus && modelStatus !== "ok" && (
+        <span className="flex items-center gap-1 rounded-xl bg-red-500/10 px-2 py-1.5 text-[10px] text-red-400" data-testid="model-status-badge">
+          {MODEL_STATUS_MSG[modelStatus] || "Modelo indisponível"} — troque na lista de IA
+        </span>
       )}
       {err && <span className="text-[10px] text-red-400">{err}</span>}
     </div>
