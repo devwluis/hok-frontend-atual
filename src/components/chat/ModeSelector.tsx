@@ -25,6 +25,7 @@ interface ModeState {
 
 export default function ModeSelector({ conversationId }: { conversationId: string | null }) {
   const [st, setSt] = useState<ModeState>({ mode: "", autonomous_budget: 0, checkpoint_id: "", auto_rollback: false });
+  const [budgetInput, setBudgetInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -52,6 +53,7 @@ export default function ModeSelector({ conversationId }: { conversationId: strin
     try {
       const d = await api("/session/mode");
       setSt({ mode: d.mode || "", autonomous_budget: d.autonomous_budget ?? 0, checkpoint_id: d.checkpoint_id || "", auto_rollback: !!d.auto_rollback });
+      setBudgetInput(d.autonomous_budget ? String(d.autonomous_budget) : "");
       setErr(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "falha ao ler o modo");
@@ -62,11 +64,21 @@ export default function ModeSelector({ conversationId }: { conversationId: strin
     refresh();
   }, [refresh]);
 
+  const parseBudget = (): number | null => {
+    const n = Number(budgetInput);
+    if (!budgetInput || Number.isNaN(n)) return null;
+    return Math.min(200, Math.max(1, Math.round(n)));
+  };
+
   const setMode = async (mode: SessionMode) => {
     setBusy(true);
     setErr(null);
     try {
       const body: Record<string, unknown> = { mode };
+      if (mode === "autonomous" || mode === "autonomous_total") {
+        const b = parseBudget();
+        if (b !== null) body.autonomous_budget = b;
+      }
       if (mode === "autonomous_total") body.auto_rollback = st.auto_rollback;
       await api("/session/mode", { method: "POST", body: JSON.stringify(body) });
       await refresh();
@@ -84,6 +96,24 @@ export default function ModeSelector({ conversationId }: { conversationId: strin
       await refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "falha ao salvar auto_rollback");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyBudget = async () => {
+    if (!st.mode || (st.mode !== "autonomous" && st.mode !== "autonomous_total")) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const body: Record<string, unknown> = { mode: st.mode };
+      const b = parseBudget();
+      if (b !== null) body.autonomous_budget = b;
+      if (st.mode === "autonomous_total") body.auto_rollback = st.auto_rollback;
+      await api("/session/mode", { method: "POST", body: JSON.stringify(body) });
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "falha ao aplicar o budget");
     } finally {
       setBusy(false);
     }
@@ -156,6 +186,37 @@ export default function ModeSelector({ conversationId }: { conversationId: strin
               Rollback
             </button>
           )}
+        </>
+      )}
+      {(st.mode === "autonomous" || st.mode === "autonomous_total") && (
+        <>
+          <label className="flex items-center gap-1 text-[10px] text-muted-foreground" data-testid="budget-input-wrap">
+            Budget:
+            <input
+              type="number"
+              min={1}
+              max={200}
+              value={budgetInput}
+              onChange={(e) => setBudgetInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyBudget();
+              }}
+              className="w-14 rounded-lg border border-border bg-background px-1.5 py-1 text-[10px] text-foreground outline-none focus:border-[color:var(--amber)]"
+              data-testid="budget-input"
+            />
+            <button
+              type="button"
+              onClick={applyBudget}
+              disabled={busy}
+              className="rounded-lg bg-[color:var(--amber)]/15 px-1.5 py-1 text-[10px] text-[color:var(--amber)] hover:bg-[color:var(--amber)]/25"
+              data-testid="budget-apply"
+            >
+              OK
+            </button>
+          </label>
+          <span className="rounded-xl border border-border bg-card px-2 py-1.5 text-[10px] text-muted-foreground" data-testid="budget-badge">
+            atual: {st.autonomous_budget}
+          </span>
         </>
       )}
       {err && <span className="text-[10px] text-red-400">{err}</span>}
