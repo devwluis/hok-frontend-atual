@@ -6,6 +6,7 @@ import { Globe, Bug, Send, Copy, Webhook, ChevronDown, ChevronUp, X, Image as Im
 import { SiN8N } from "react-icons/si";
 import { ElectricCore } from "@/components/chat/ElectricCore";
 import { NuclearCore } from "@/components/chat/NuclearCore";
+import ModeSelector from "@/components/chat/ModeSelector";
 import { cn } from "@/lib/utils";
 import { conversationsStore, type ChatMessage } from "@/lib/conversations-store";
 import { useAppState } from "@/hooks/use-app-state";
@@ -1362,6 +1363,10 @@ export function ChatScreen() {
             </AnimatePresence>
           </div>
         </div>
+
+        {/* MODE SELECTOR (29/08): Planejar/Construir/Autônomo/Total +
+        checkpoint + rollback + auto_rollback — estado via /session/mode */}
+        <ModeSelector conversationId={conversationId} />
 
         {/* Row 2: + menu / textarea / tools */}
         <div className="flex items-end gap-2 rounded-2xl border bg-popover px-2.5 py-2 transition-all focus-within:border-[color:var(--amber)] focus-within:shadow-[var(--shadow-amber-glow)]">
