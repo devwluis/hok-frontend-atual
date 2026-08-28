@@ -508,6 +508,25 @@ export function TerminalTTYDScreen() {
   }, [tabs]);
   const activeId = tabs.active;
   const activeSession = sessionNameOf(activeId);
+  // PENDÊNCIA 3 (28/08): poll do estado da sessão (GET /terminal/status) a
+  // cada ~12s enquanto a aba Terminal está montada. Se a sessão tmux/pane
+  // morreu (ex.: tmux server caiu, sessão encerrada), dispara o MESMO fluxo
+  // de recovery do iframe (startRecovery) — cobre quedas com o app em
+  // foreground, sem depender de visibilitychange (que só dispara >10s fora).
+  useEffect(() => {
+    if (!serverBase || !tokQ || !activeSession) return;
+    const t = setInterval(() => {
+      void fetch(`${serverBase}/terminal/status?session=${encodeURIComponent(activeSession)}&token=${encodeURIComponent(tokQ)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d && d.status === "down") {
+            startRecovery();
+          }
+        })
+        .catch(() => { /* rede/backend momentâneo: ignora, tenta de novo */ });
+    }, 12_000);
+    return () => clearInterval(t);
+  }, [serverBase, tokQ, activeSession, startRecovery]);
   // PONTE CHAT→TTYD (23/08): registra a sessão VISÍVEL ativa no backend —
   // comandos /terminal do chat passam a injetar nesta sessão (key injection).
   useEffect(() => {
