@@ -10,7 +10,7 @@ import ModeSelector from "@/components/chat/ModeSelector";
 import { cn } from "@/lib/utils";
 import { conversationsStore, type ChatMessage } from "@/lib/conversations-store";
 import { useAppState } from "@/hooks/use-app-state";
-import { getModel, getFreeModels, getPaidModels, getZenModels, invalidateModelsCache, FALLBACK_MODELS, type HokModel } from "@/lib/hok-models";
+import { getModel, getFreeModels, getPaidModels, getZenModels, invalidateModelsCache, FALLBACK_MODELS, SHOW_PAID_MODELS, type HokModel } from "@/lib/hok-models";
 import { type PendingAction } from "@/lib/chat-stream";
 import { detectN8NIntent, N8N_SYSTEM_PROMPT, type N8NModeState } from "@/lib/n8n-expert";
 import { OwnerGate } from "@/components/shell/OwnerGate";
@@ -409,7 +409,7 @@ function ModelCatalogList({ modelsList, search, activeModelId, onSelect }: {
     (Array.isArray(m.tags) && m.tags.some((t) => t.includes(q)));
   const groups: { header: string; badge?: string; badgeCls?: string; models: HokModel[] }[] = [];
   const paid = modelsList.paid.filter(match);
-  if (paid.length) groups.push({ header: "PAGO", badge: "PAGO", badgeCls: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", models: paid });
+  if (SHOW_PAID_MODELS && paid.length) groups.push({ header: "PAGO", badge: "PAGO", badgeCls: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", models: paid });
   const freeByProvider = new Map<string, HokModel[]>();
   for (const m of modelsList.free) {
     if (!match(m)) continue;
@@ -478,6 +478,9 @@ export function ChatScreen() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  // taskRunning: true enquanto o agente está processando (mantém o núcleo pensante visível
+  // durante toda a execução, independente do texto acumulado em accRef).
+  const [taskRunning, setTaskRunning] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -724,6 +727,73 @@ export function ChatScreen() {
     return () => { cancelled = true; };
   }, [conversationId]);
 
+  // FIX 29/08 21:xx — retomada por visibilitychange. O useEffect acima só
+  // dispara quando a conversa MUDA — se você fica na mesma conversa e troca
+  // de aba/janela, a retomada nunca acontece. Este listener cobre esse caso:
+  // volta pro app → verifica se há job running na conversa atual e reanexa o
+  // polling. Não interfere no envio ativo (abortRef é guardado por useRef).
+  useEffect(() => {
+    if (!conversationId) return;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const { serverUrl, token } = readSettings();
+      if (!token && !serverUrl) return;
+      const baseUrl = serverUrl || window.location.origin;
+      const headers: Record<string, string> = { "Content-Type": "application/json", "X-Hok-Token": token };
+      // se já há um envio em andamento, deixa ele cuidar
+      if (loadingRef.current) return;
+      (async () => {
+        try {
+          const res = await fetch(`${baseUrl}/chat/job?conv_id=${encodeURIComponent(conversationId)}`, { headers });
+          if (!res.ok) return;
+          const data = (await res.json()) as { jobs?: { job_id?: string; status?: string; reply?: string }[] };
+          const latest = data.jobs?.[0];
+          if (!latest || !latest.job_id) return;
+          if (latest.status === "done" && latest.reply) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.text === latest.reply)) return prev;
+              const next = [...prev, { id: crypto.randomUUID(), role: "assistant" as const, text: latest.reply ?? "…" }];
+              persist(next, conversationId);
+              return next;
+            });
+            return;
+          }
+          if (latest.status === "running") {
+            // reanexa o polling silenciosamente
+            abortRef.current = new AbortController();
+            setLoading(true);
+            for (;;) {
+              if (abortRef.current?.signal.aborted) return;
+              await new Promise((r) => setTimeout(r, 2000));
+              const jr = await fetch(`${baseUrl}/chat/job?id=${encodeURIComponent(latest.job_id)}`, {
+                headers,
+                signal: abortRef.current?.signal,
+              });
+              if (!jr.ok) continue;
+              const job = (await jr.json()) as { status?: string; reply?: string };
+              if (job.status === "done") {
+                setLoading(false);
+                const text = job.reply ?? "";
+                if (text) {
+                  setMessages((prev) => {
+                    if (prev.some((m) => m.text === text)) return prev;
+                    const next = [...prev, { id: crypto.randomUUID(), role: "assistant" as const, text: text || "…" }];
+                    persist(next, conversationId);
+                    return next;
+                  });
+                }
+                abortRef.current = null;
+                return;
+              }
+            }
+          }
+        } catch { /* silencioso */ }
+      })();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [conversationId]);
+
   // ── Persistência de estado (conversa ativa, rascunho e scroll por conversa) ──
   useEffect(() => {
     if (restoredStateRef.current) return;
@@ -900,6 +970,7 @@ export function ChatScreen() {
     setInput("");
     setAttachments([]);
     setLoading(true);
+    setTaskRunning(true);
     accRef.current = "";
     pendingActionRef.current = null;
 
@@ -994,11 +1065,13 @@ export function ChatScreen() {
           if (!jr.ok) continue;
           const job = (await jr.json()) as { status?: string; reply?: string; mode?: string; engine?: string; model_used?: string; pending_action?: PendingAction | null };
           if (job.status === "done") {
+            setTaskRunning(false);
             applyResult(job.reply ?? "", job.engine, job.model_used, job.pending_action ?? null);
             break;
           }
         }
       } else {
+        setTaskRunning(false);
         applyResult(start.reply ?? "", undefined, undefined, start.pendingAction ?? null);
       }
 
@@ -1027,6 +1100,7 @@ export function ChatScreen() {
     } finally {
       loadingRef.current = false;
       setLoading(false);
+      setTaskRunning(false);
       abortRef.current = null;
     }
   };
@@ -1057,8 +1131,9 @@ export function ChatScreen() {
             />
           ))}
 
-          {/* Thinking animation with electric core */}
-          {loading && accRef.current === "" && (
+          {/* Thinking animation with electric core — taskRunning mantém o núcleo visível
+              durante toda a execução do agente (Plan/Build/Autônomo/Autônomo Total) */}
+          {taskRunning && (
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}

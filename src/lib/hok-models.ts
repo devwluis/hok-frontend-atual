@@ -173,7 +173,12 @@ export async function getFreeModels(force = false): Promise<HokModel[]> {
   return models.filter((x) => x.free);
 }
 
+// TEMPORÁRIO (31/08/2026): mostrar só modelos free. Reverter mudando esta
+// flag para true quando quisermos reabilitar seleção de modelos pagos.
+export const SHOW_PAID_MODELS = false;
+
 export async function getPaidModels(force = false): Promise<HokModel[]> {
+  if (!SHOW_PAID_MODELS) return []; // TEMP: picker free-only
   const models = await getModels(force);
   return models.filter((x) => !x.free && x.provider !== "OpenCode Zen");
 }

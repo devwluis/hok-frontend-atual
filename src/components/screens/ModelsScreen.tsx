@@ -8,6 +8,7 @@ import {
   invalidateModelsCache,
   searchModels,
   getFreeModelsFromAll,
+  SHOW_PAID_MODELS,
   type HokModel,
 } from "@/lib/hok-models";
 
@@ -83,11 +84,11 @@ export function ModelsScreen() {
     const or = filtered.filter((m) => m.provider !== "OpenCode Zen" && m.provider !== "OpenCode Go");
     return [
       { title: "OpenCode Zen — FREE", badge: "FREE", badgeClass: "bg-[color:var(--emerald)]/15 text-[color:var(--emerald)]", items: zen.filter((m) => m.free) },
-      { title: "OpenCode Zen — PAGO", badge: "PAGO", badgeClass: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", items: zen.filter((m) => !m.free) },
+      ...(SHOW_PAID_MODELS ? [{ title: "OpenCode Zen — PAGO", badge: "PAGO", badgeClass: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", items: zen.filter((m) => !m.free) }] : []),
       { title: "OpenCode Go — FREE", badge: "FREE", badgeClass: "bg-[color:var(--emerald)]/15 text-[color:var(--emerald)]", items: go.filter((m) => m.free) },
-      { title: "OpenCode Go — PAGO", badge: "PAGO", badgeClass: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", items: go.filter((m) => !m.free) },
+      ...(SHOW_PAID_MODELS ? [{ title: "OpenCode Go — PAGO", badge: "PAGO", badgeClass: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", items: go.filter((m) => !m.free) }] : []),
       { title: "OpenRouter — FREE", badge: "FREE", badgeClass: "bg-[color:var(--emerald)]/15 text-[color:var(--emerald)]", items: or.filter((m) => m.free) },
-      { title: "OpenRouter — PAGO", badge: "PAGO", badgeClass: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", items: or.filter((m) => !m.free) },
+      ...(SHOW_PAID_MODELS ? [{ title: "OpenRouter — PAGO", badge: "PAGO", badgeClass: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", items: or.filter((m) => !m.free) }] : []),
     ];
   }, [filtered, onlyFree]);
 
