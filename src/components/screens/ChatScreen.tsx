@@ -855,6 +855,24 @@ export function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
+  // PONTE histórico→chat (01/09): preenche o campo de mensagem com o texto
+  // vindo do modal de histórico do terminal. Ponte via localStorage (o evento
+  // window se perderia: o ChatScreen não está montado enquanto o usuário está
+  // no terminal). Ao montar, lê o texto, preenche o input e limpa o item.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("hokma.chat.prefill.v1");
+      if (typeof raw === "string" && raw.trim()) {
+        setInput(raw);
+        taRef.current?.focus();
+        localStorage.removeItem("hokma.chat.prefill.v1");
+      }
+    } catch {
+      /* noop */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Persiste engine forçado + modelo selecionado (localStorage) — sobrevivem
   // ao fechar/reabrir o app. Gravação imediata (sem debounce): troca de
   // modelo/engine é evento raro e deve persistir na hora.

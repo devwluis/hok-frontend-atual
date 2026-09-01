@@ -1,10 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw, Copy, Square, ClipboardCopy, ClipboardPaste, LogOut, Trash2 } from "lucide-react";
+import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw, Copy, Square, ClipboardCopy, ClipboardPaste, LogOut, Trash2, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx, DOCK_CLEAR_PX } from "@/lib/shell-layers";
 import { BUILD_ID } from "@/lib/build-info";
 import { TERMINAL_THEMES, readTerminalTheme } from "./SettingsScreen";
+import { useAppState } from "@/hooks/use-app-state";
 
 const RENEW_MARGIN_S = 60;
 const RETRY_ERR_MS = 10_000;
@@ -160,6 +161,10 @@ function sessionNameOf(id: string): string {
 // seguro (http://ip-LAN, alguns WebViews/PWA) — as rodadas anteriores falhavam
 // aí em silêncio ("nada acontece"). Fallback universal: textarea invisível +
 // document.execCommand("copy"), suportado em todo Chromium mobile.
+// FIX 01/09 (buffer 10k): fallback EXTRA para textos grandes (histórico com
+// transcript completo pode passar de 64KB). Em alguns WebViews o writeText
+// rejeita >~64KB e o execCommand em textarea truncava/fracassava — usamos um
+// elemento contenteditable com seleção manual como última cartada.
 async function writeClipboard(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -167,6 +172,21 @@ async function writeClipboard(text: string): Promise<boolean> {
   } catch {
     /* cai no fallback */
   }
+  const execCopy = (el: HTMLElement): boolean => {
+    try {
+      const sel = window.getSelection();
+      if (!sel) return false;
+      sel.removeAllRanges();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      sel.addRange(range);
+      const ok = document.execCommand("copy");
+      sel.removeAllRanges();
+      return ok;
+    } catch {
+      return false;
+    }
+  };
   try {
     const ta = document.createElement("textarea");
     ta.value = text;
@@ -177,6 +197,19 @@ async function writeClipboard(text: string): Promise<boolean> {
     ta.select();
     const ok = document.execCommand("copy");
     document.body.removeChild(ta);
+    if (ok) return true;
+  } catch {
+    /* cai no contenteditable */
+  }
+  try {
+    const ce = document.createElement("div");
+    ce.setAttribute("contenteditable", "true");
+    ce.style.cssText = "position:fixed;top:-999px;left:-999px;opacity:0";
+    ce.innerText = text;
+    document.body.appendChild(ce);
+    ce.focus();
+    const ok = execCopy(ce);
+    document.body.removeChild(ce);
     return ok;
   } catch {
     return false;
@@ -184,6 +217,7 @@ async function writeClipboard(text: string): Promise<boolean> {
 }
 
 export function TerminalTTYDScreen() {
+  const { setScreen } = useAppState();
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const aliveRef = useRef(true);
@@ -608,7 +642,7 @@ export function TerminalTTYDScreen() {
 		// (sessões criadas antes deste fix) E o app não é TUI.
 		try {
 			const r = await fetch(
-				`${serverBase}/terminal/ttyd/log?session=${encodeURIComponent(activeSession)}&token=${encodeURIComponent(tokQ)}&max=4000`,
+				`${serverBase}/terminal/ttyd/log?session=${encodeURIComponent(activeSession)}&token=${encodeURIComponent(tokQ)}&max=10000`,
 				{ method: "GET" },
 			);
 			if (r.ok) {
@@ -648,7 +682,7 @@ export function TerminalTTYDScreen() {
 			await new Promise((r) => setTimeout(r, 2500));
 			// Recarrega
 			const r = await fetch(
-				`${serverBase}/terminal/ttyd/log?session=${encodeURIComponent(activeSession)}&token=${encodeURIComponent(tokQ)}&max=4000`,
+				`${serverBase}/terminal/ttyd/log?session=${encodeURIComponent(activeSession)}&token=${encodeURIComponent(tokQ)}&max=10000`,
 			);
 			if (r.ok) {
 				const j = await r.json();
@@ -669,6 +703,26 @@ export function TerminalTTYDScreen() {
 		const ok = await writeClipboard(histText);
 		flashToast(ok ? "histórico copiado ✓" : "falha ao acessar a área de transferência");
 	}, [histText, flashToast]);
+	// FIX 01/09 (buffer 10k / transferir p/ chat): envia o histórico direto
+	// para o campo de mensagem do chat. Ponte via localStorage + troca de tela:
+	// o ChatScreen só existe montado na tela "chat" — evento window se perderia
+	// (ChatScreen desmontado no terminal). Gravamos o texto e navegamos; o
+	// ChatScreen lê ao montar e preenche o input.
+	const CHAT_PREFILL_KEY = "hokma.chat.prefill.v1";
+	const sendHistoryToChat = useCallback(() => {
+		if (!histText.trim()) {
+			flashToast("histórico vazio", 1500);
+			return;
+		}
+		try {
+			localStorage.setItem(CHAT_PREFILL_KEY, histText);
+			setHistOpen(false);
+			setScreen("chat");
+			flashToast("enviado para o chat ✓", 1600);
+		} catch {
+			flashToast("falha ao enviar para o chat", 1800);
+		}
+	}, [histText, flashToast, setScreen]);
 	// FIX bug-limpar-historico (30/08): apaga o arquivo de log do tmux
 	// desta sessão via DELETE /terminal/ttyd/log. Backend também mata o
 	// helper pra evitar race. Próxima chamada a openHistory recria.
@@ -1829,6 +1883,13 @@ export function TerminalTTYDScreen() {
                   className="flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] font-bold disabled:opacity-40"
                   style={{ color: "var(--hok-bg)", background: "var(--hok-accent)", borderColor: "var(--hok-accent)" }}>
                   <ClipboardCopy size={11} /> Copiar tudo
+                </button>
+                <button type="button" data-testid="term-history-send" onClick={sendHistoryToChat}
+                  disabled={histLoading || !!histErr || !histText.trim()}
+                  title="Enviar o histórico para o campo de chat (sem depender do clipboard)"
+                  className="flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] font-bold disabled:opacity-40"
+                  style={{ color: "var(--hok-bg)", background: "#0ea5e9", borderColor: "#0ea5e9" }}>
+                  <Send size={11} /> Enviar p/ chat
                 </button>
                 <button type="button" data-testid="term-history-close" onClick={() => setHistOpen(false)}
                   className="flex h-7 w-7 items-center justify-center rounded-md border"
