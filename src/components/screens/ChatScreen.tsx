@@ -566,6 +566,10 @@ export function ChatScreen() {
   const loadingRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const accRef = useRef<string>("");
+  // FIX 01/09: job_id do envio em curso — o handler de visibilitychange usa
+  // para coletar a resposta pronta ao voltar de aba oculta (mesmo com envio
+  // ativo), sem depender do polling throttled pelo navegador.
+  const activeJobIdRef = useRef<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef  = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -740,7 +744,30 @@ export function ChatScreen() {
       if (!token && !serverUrl) return;
       const baseUrl = serverUrl || window.location.origin;
       const headers: Record<string, string> = { "Content-Type": "application/json", "X-Hok-Token": token };
-      // se já há um envio em andamento, deixa ele cuidar
+      // FIX 01/09: antes `if (loadingRef.current) return;` — durante um envio
+      // ativo isso sempre abortava a retomada. Agora, se há um job em curso,
+      // busca o resultado diretamente por id e aplica se já terminou
+      // (independente do loadingRef). O polling do send() também acorda ao
+      // ficar visível (checagem de visibilityState no loop).
+      if (loadingRef.current && activeJobIdRef.current) {
+        const jid = activeJobIdRef.current;
+        fetch(`${baseUrl}/chat/job?id=${encodeURIComponent(jid)}`, { headers })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((job) => {
+            if (!job || job.status !== "done" || !job.reply) return;
+            activeJobIdRef.current = null;
+            setTaskRunning(false);
+            setLoading(false);
+            setMessages((prev) => {
+              if (prev.some((m) => m.text === job.reply)) return prev;
+              const next = [...prev, { id: crypto.randomUUID(), role: "assistant" as const, text: job.reply ?? "…" }];
+              persist(next, conversationId);
+              return next;
+            });
+          })
+          .catch(() => { /* polling do send() cuida do resto */ });
+        return;
+      }
       if (loadingRef.current) return;
       (async () => {
         try {
@@ -1055,9 +1082,29 @@ export function ChatScreen() {
       };
 
       if (start.job_id) {
+        activeJobIdRef.current = start.job_id;
         for (;;) {
           if (abortRef.current?.signal.aborted) throw new DOMException("aborted", "AbortError");
-          await new Promise((r) => setTimeout(r, 2000));
+          // FIX 01/09: aguarda 2s, mas se a aba voltou a ficar visível nesse
+          // meio-tempo, dispara o fetch IMEDIATO (browsers throttlam o
+          // setTimeout em background — o job pode já estar done no backend
+          // enquanto o polling dormia).
+          await new Promise<void>((resolve) => {
+            if (document.visibilityState === "visible") return resolve();
+            let settled = false;
+            const onVis = () => {
+              if (document.visibilityState !== "visible") return;
+              document.removeEventListener("visibilitychange", onVis);
+              settled = true;
+              resolve();
+            };
+            document.addEventListener("visibilitychange", onVis);
+            setTimeout(() => {
+              if (settled) return;
+              document.removeEventListener("visibilitychange", onVis);
+              resolve();
+            }, 2000);
+          });
           const jr = await fetch(`${baseUrl}/chat/job?id=${encodeURIComponent(start.job_id)}`, {
             headers,
             signal: abortRef.current?.signal,
@@ -1065,6 +1112,7 @@ export function ChatScreen() {
           if (!jr.ok) continue;
           const job = (await jr.json()) as { status?: string; reply?: string; mode?: string; engine?: string; model_used?: string; pending_action?: PendingAction | null };
           if (job.status === "done") {
+            activeJobIdRef.current = null;
             setTaskRunning(false);
             applyResult(job.reply ?? "", job.engine, job.model_used, job.pending_action ?? null);
             break;
@@ -1102,6 +1150,7 @@ export function ChatScreen() {
       setLoading(false);
       setTaskRunning(false);
       abortRef.current = null;
+      activeJobIdRef.current = null;
     }
   };
 
