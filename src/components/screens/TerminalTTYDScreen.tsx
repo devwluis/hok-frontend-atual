@@ -876,6 +876,12 @@ export function TerminalTTYDScreen() {
       void selectionCopy();
       return;
     }
+    // FIX 01/09 (abortar no celular): feedback claro ao enviar ^C/^D — no
+    // celular o usuário não vê o efeito da tecla, então o toast confirma
+    // que o comando chegou à sessão (evita re-toques confusos).
+    if (payload.key === "C-c" || payload.key === "C-d") {
+      flashToast(payload.key === "C-c" ? "Ctrl+C enviado ✓" : "Ctrl+D enviado ✓", 1200);
+    }
     void sendToKeys(payload);
     if (payload.key) {
       if (sticky.ctrl || sticky.alt) {
@@ -887,6 +893,13 @@ export function TerminalTTYDScreen() {
 
   const toggleSticky = (mod: "ctrl" | "alt") => {
     sticky = { ...sticky, [mod]: !sticky[mod] } as typeof sticky;
+    // FIX 01/09 (Ctrl no celular): ativar o modificador também foca o iframe
+    // → abre o teclado do celular. O usuário pode então digitar a letra; e se
+    // combinar com setas (barra virtual) ou usar o ^C dedicado, o modificador
+    // é aplicado à sessão. Sem o foco, o teclado do celular nunca abria.
+    if (sticky.ctrl || sticky.alt) {
+      focusTerminalInput();
+    }
     rerender();
   };
 
@@ -1748,6 +1761,13 @@ export function TerminalTTYDScreen() {
             <KeyButton label="Ctrl" active={sticky.ctrl} testid="ov-sticky-ctrl" onClick={() => toggleSticky("ctrl")} />
             {[k("Esc", "Escape")].map((xk) => (
               <KeyButton key={xk.label} label={xk.label} testid={`ov-key-${xk.label}`} onClick={() => pressXKey(xk)} />
+            ))}
+            {/* FIX 01/09 (abortar no celular): ^C e ^D SEMPRE visíveis — no
+                celular não há tecla Ctrl física; antes o ^C ficava escondido
+                no grupo "...", impossível de achar em TUI rodando. Agora um
+                toque aborta (^C) ou encerra (^D) a sessão. */}
+            {COMBO_KEYS.filter((xk) => xk.tid === "Cc" || xk.tid === "Cd").map((xk) => (
+              <KeyButton key={xk.tid} label={xk.label} wide testid={`ov-combo-${xk.tid}`} onClick={() => pressXKey(xk)} />
             ))}
             {ROW_KEYS.map((xk) => (
               <KeyButton key={xk.tid ?? xk.label} label={xk.label} wide={xk.label.length > 3} testid={`ov-key-${xk.tid ?? xk.label}`} onClick={() => pressXKey(xk)} />

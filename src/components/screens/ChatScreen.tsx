@@ -751,25 +751,31 @@ export function ChatScreen() {
   // de aba/janela, a retomada nunca acontece. Este listener cobre esse caso:
   // volta pro app → verifica se há job running na conversa atual e reanexa o
   // polling. Não interfere no envio ativo (abortRef é guardado por useRef).
+  // FIX 01/09 (núcleo pensante ao voltar da aba): extraímos a retomada para
+  // resumeRunningJob e a chamamos TAMBÉM no mount — ao trocar de tela dentro
+  // do app (chat→terminal→chat) o ChatScreen é desmontado/remontado, e o
+  // visibilitychange NÃO dispara nesse caso. Sem isso, o job continuava
+  // rodando mas o taskRunning (núcleo pensante) ficava false.
   useEffect(() => {
     if (!conversationId) return;
-    const onVisible = () => {
-      if (document.visibilityState !== "visible") return;
+    const resumeRunningJob = () => {
       const { serverUrl, token } = readSettings();
       if (!token && !serverUrl) return;
       const baseUrl = serverUrl || window.location.origin;
       const headers: Record<string, string> = { "Content-Type": "application/json", "X-Hok-Token": token };
-      // FIX 01/09: antes `if (loadingRef.current) return;` — durante um envio
-      // ativo isso sempre abortava a retomada. Agora, se há um job em curso,
-      // busca o resultado diretamente por id e aplica se já terminou
-      // (independente do loadingRef). O polling do send() também acorda ao
-      // ficar visível (checagem de visibilityState no loop).
+      // Se há um envio ativo em curso, busca o resultado por id e reaplica.
       if (loadingRef.current && activeJobIdRef.current) {
         const jid = activeJobIdRef.current;
         fetch(`${baseUrl}/chat/job?id=${encodeURIComponent(jid)}`, { headers })
           .then((r) => (r.ok ? r.json() : null))
           .then((job) => {
-            if (!job || job.status !== "done" || !job.reply) return;
+            if (!job || job.status !== "done" || !job.reply) {
+              // job ainda em execução — reativa o núcleo pensante
+              if (job && job.status === "running") {
+                setTaskRunning(true);
+              }
+              return;
+            }
             activeJobIdRef.current = null;
             setTaskRunning(false);
             setLoading(false);
@@ -801,9 +807,11 @@ export function ChatScreen() {
             return;
           }
           if (latest.status === "running") {
-            // reanexa o polling silenciosamente
+            // reanexa o polling silenciosamente — mantém o núcleo pensante
+            // visível enquanto o job ainda está em execução (FIX 01/09).
             abortRef.current = new AbortController();
             setLoading(true);
+            setTaskRunning(true);
             for (;;) {
               if (abortRef.current?.signal.aborted) return;
               await new Promise((r) => setTimeout(r, 2000));
@@ -831,6 +839,12 @@ export function ChatScreen() {
           }
         } catch { /* silencioso */ }
       })();
+    };
+    // Mount (volta da tela terminal → remonta ChatScreen) + visibilitychange
+    resumeRunningJob();
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      resumeRunningJob();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
