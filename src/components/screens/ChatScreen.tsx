@@ -112,7 +112,7 @@ function writeChatState(patch: Partial<ChatState>) {
 }
 
 type Msg = ChatMessage & {
-  meta?: { ms: number; model?: string };
+  meta?: { ms: number; model?: string; actualModel?: string };
   imagePreview?: string;
   audioName?: string;
   pendingAction?: PendingAction | null;
@@ -376,6 +376,18 @@ function MessageBubble({
         )}
 
 
+        {!isUser && msg.meta?.actualModel && msg.meta.actualModel !== msg.meta.model && (
+          <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5">
+            <div className="flex items-start gap-1.5 text-[10px] leading-snug">
+              <span className="shrink-0">⚠️</span>
+              <span className="text-amber-500">
+                <span className="font-semibold">respondido por: {getModel(msg.meta.actualModel).label}</span>
+                <span className="block text-amber-500/80">(o modelo selecionado não respondeu agora)</span>
+              </span>
+            </div>
+          </div>
+        )}
+
         {!isUser && msg.meta && (
           <div className="mt-2 flex items-center gap-2 border-t border-border/60 pt-1.5">
             {modelInfo && (
@@ -566,6 +578,9 @@ export function ChatScreen() {
   const loadingRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const accRef = useRef<string>("");
+  // FIX 01/09: model_used REAL do backend (fallback de IA) — persistido aqui
+  // para o rodapé/badge (evita closure stale do estado messages).
+  const actualModelRef = useRef<string | undefined>(undefined);
   // FIX 01/09: job_id do envio em curso — o handler de visibilitychange usa
   // para coletar a resposta pronta ao voltar de aba oculta (mesmo com envio
   // ativo), sem depender do polling throttled pelo navegador.
@@ -1071,12 +1086,20 @@ export function ChatScreen() {
           setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, pendingAction: pending } : m)));
         }
         if (engine === "hermes" || engine === "claude_code" || engine === "opencode" || engine === "opencode_serve" || engine === "chat") setResolvedEngine(engine);
-        if (modelUsed && modelUsed !== "auto") setActiveModelId(modelUsed);
+        if (modelUsed && modelUsed !== "auto") {
+          setActiveModelId(modelUsed);
+          actualModelRef.current = modelUsed;
+        }
         if (replyText) {
           accRef.current = replyText;
           setMessages((prev) => {
             const exists = prev.some((m) => m.id === assistantId);
-            return exists ? prev.map((m) => (m.id === assistantId ? { ...m, text: replyText } : m)) : [...prev, { id: assistantId, role: "assistant" as const, text: replyText }];
+            // FIX 01/09: guarda o model_used REAL no meta.actualModel — o rodapé
+            // mostra o selecionado (meta.model), e o badge mostra quando o
+            // backend respondeu com outro modelo (fallback de IA).
+            return exists
+              ? prev.map((m) => (m.id === assistantId ? { ...m, text: replyText, meta: { ms: m.meta?.ms ?? 0, model: selectedModel, actualModel: actualModelRef.current } } : m))
+              : [...prev, { id: assistantId, role: "assistant" as const, text: replyText, meta: { ms: 0, model: selectedModel, actualModel: actualModelRef.current } }];
           });
         }
       };
@@ -1128,7 +1151,7 @@ export function ChatScreen() {
         id: assistantId,
         role: "assistant",
         text: accRef.current || "…",
-        meta: { ms, model: selectedModel },
+        meta: { ms, model: selectedModel, actualModel: actualModelRef.current },
         pendingAction: pendingActionRef.current,
       };
       setMessages((prev) => {
