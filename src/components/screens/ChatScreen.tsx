@@ -812,13 +812,28 @@ export function ChatScreen() {
             abortRef.current = new AbortController();
             setLoading(true);
             setTaskRunning(true);
+            // FIX 02/09: limite total (10min) + job perdido (404) → sai do
+            // polling em vez de loop infinito (bolha "pensando" eterna).
+            const resumeDeadline = Date.now() + 10 * 60 * 1000;
             for (;;) {
               if (abortRef.current?.signal.aborted) return;
+              if (Date.now() > resumeDeadline) {
+                setLoading(false);
+                setTaskRunning(false);
+                return;
+              }
               await new Promise((r) => setTimeout(r, 2000));
               const jr = await fetch(`${baseUrl}/chat/job?id=${encodeURIComponent(latest.job_id)}`, {
                 headers,
                 signal: abortRef.current?.signal,
               });
+              if (jr.status === 404) {
+                // job perdido (backend reiniciou) — sai do modo pensante.
+                setLoading(false);
+                setTaskRunning(false);
+                abortRef.current = null;
+                return;
+              }
               if (!jr.ok) continue;
               const job = (await jr.json()) as { status?: string; reply?: string };
               if (job.status === "done") {
@@ -1138,8 +1153,16 @@ export function ChatScreen() {
 
       if (start.job_id) {
         activeJobIdRef.current = start.job_id;
+        // FIX 02/09: limite total do polling do job (espelha o timeout do
+        // backend chatJobAsyncTimeout, 10min). Se o backend nunca marcar o
+        // job como done (ex.: modelo em rate-limit preso no serve), o loop
+        // anterior rodava PARA SEMPRE e a bolha "pensando" ficava eterna.
+        const pollDeadline = Date.now() + 10 * 60 * 1000;
         for (;;) {
           if (abortRef.current?.signal.aborted) throw new DOMException("aborted", "AbortError");
+          if (Date.now() > pollDeadline) {
+            throw new Error("O processamento demorou demais no servidor. Tente novamente.");
+          }
           // FIX 01/09: aguarda 2s, mas se a aba voltou a ficar visível nesse
           // meio-tempo, dispara o fetch IMEDIATO (browsers throttlam o
           // setTimeout em background — o job pode já estar done no backend
@@ -1164,6 +1187,12 @@ export function ChatScreen() {
             headers,
             signal: abortRef.current?.signal,
           });
+          // FIX 02/09: job perdido (404 — backend reiniciou, jobs são em
+          // memória) → sai do loop com erro claro em vez de `continue`
+          // infinito (bolha "pensando" eterna).
+          if (jr.status === 404) {
+            throw new Error("O trabalho foi perdido (servidor reiniciou). Envie novamente.");
+          }
           if (!jr.ok) continue;
           const job = (await jr.json()) as { status?: string; reply?: string; mode?: string; engine?: string; model_used?: string; pending_action?: PendingAction | null };
           if (job.status === "done") {
