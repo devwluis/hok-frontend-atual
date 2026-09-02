@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw, Copy, Square, ClipboardCopy, ClipboardPaste, LogOut, Trash2, Send } from "lucide-react";
+import { Palette, Keyboard, Plus, Minus, X, Maximize2, Minimize2, Command, MoreHorizontal, Activity, Circle, RotateCcw, Copy, Square, ClipboardCopy, ClipboardPaste, LogOut, Trash2, Send, Paperclip, FileUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx, DOCK_CLEAR_PX } from "@/lib/shell-layers";
 import { BUILD_ID } from "@/lib/build-info";
@@ -867,6 +867,44 @@ export function TerminalTTYDScreen() {
       }).catch(() => {});
     },
     [serverBase, tokQ, activeSession],
+  );
+
+  // ── ANEXO de arquivo no terminal (01/09, Opção B) ────────────────────────
+  // Upload multipart → backend salva em /tmp/hok-attach/ e injeta na sessão
+  // tmux (texto via paste-buffer; binário/imagem injeta o caminho). O input
+  // oculto fica no JSX (perto da barra) e o botão "Anexar" dispara o picker.
+  const attachInputRef = useRef<HTMLInputElement | null>(null);
+  const [attaching, setAttaching] = useState(false);
+  const handleAttachFile = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      setAttaching(true);
+      try {
+        const fd = new FormData();
+        fd.append("session", activeSession);
+        fd.append("file", file);
+        const qs = new URLSearchParams({ token: tokQ });
+        const res = await fetch(`${serverBase}/terminal/ttyd/attach?${qs}`, {
+          method: "POST",
+          body: fd,
+        });
+        if (!res.ok) throw new Error(`upload ${res.status}`);
+        const j = (await res.json()) as { text?: boolean; bytes?: number };
+        flashToast(
+          j.text
+            ? `anexo "${file.name}" injetado no terminal ✓`
+            : `anexo salvo: /tmp/hok-attach/${file.name} (referencie no terminal)`,
+          2200,
+        );
+      } catch (err) {
+        flashToast("falha ao anexar: " + String((err as Error)?.message ?? err), 2500);
+      } finally {
+        setAttaching(false);
+      }
+    },
+    [serverBase, tokQ, activeSession, flashToast],
   );
 
   const pressXKey = (xk: XKey) => {
@@ -1769,6 +1807,28 @@ export function TerminalTTYDScreen() {
             {COMBO_KEYS.filter((xk) => xk.tid === "Cc" || xk.tid === "Cd").map((xk) => (
               <KeyButton key={xk.tid} label={xk.label} wide testid={`ov-combo-${xk.tid}`} onClick={() => pressXKey(xk)} />
             ))}
+            {/* FIX 01/09 (anexo no terminal): botão "Anexar" — envia arquivo
+                direto à sessão tmux (texto é injetado; binário/imagem é
+                salvo em /tmp/hok-attach e o caminho é colado no terminal). */}
+            <button
+              type="button"
+              data-testid="ov-attach"
+              onClick={() => attachInputRef.current?.click()}
+              disabled={attaching}
+              title="Anexar arquivo/foto ao terminal"
+              className="flex h-9 shrink-0 select-none items-center justify-center gap-1 rounded-md border px-2.5 text-[11px] font-semibold disabled:opacity-40"
+              style={{ color: "var(--hok-ink)", background: "var(--hok-key)", borderColor: "var(--hok-line)" }}
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+              {attaching ? "…" : "Anexar"}
+            </button>
+            <input
+              ref={attachInputRef}
+              type="file"
+              className="hidden"
+              data-testid="ov-attach-input"
+              onChange={handleAttachFile}
+            />
             {ROW_KEYS.map((xk) => (
               <KeyButton key={xk.tid ?? xk.label} label={xk.label} wide={xk.label.length > 3} testid={`ov-key-${xk.tid ?? xk.label}`} onClick={() => pressXKey(xk)} />
             ))}
