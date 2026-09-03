@@ -766,20 +766,23 @@ export function TerminalTTYDScreen() {
 			if (!t) { flashToast("clipboard vazio", 1500); return; }
 			await selApi("paste", t);
 			flashToast("colado ✓", 1200);
+			// FIX 03/09: foca o iframe após colar — Enter do teclado vai p/ o terminal.
+			setTimeout(() => focusTerminalInput(), 100);
 		} catch {
 			// Sem permissão de LEITURA (comum em http:// e WebView): abre o
 			// modal de colagem manual — long-press nativo no campo.
 			setPasteDraft("");
 			setPasteOpen(true);
 		}
-	}, [selApi, flashToast]);
+	}, [selApi, flashToast, focusTerminalInput]);
 	const confirmPasteModal = useCallback(async () => {
 		const t = pasteDraft;
 		setPasteOpen(false);
 		if (!t) return;
 		await selApi("paste", t);
 		flashToast("colado ✓", 1200);
-	}, [pasteDraft, selApi, flashToast]);
+		setTimeout(() => focusTerminalInput(), 100);
+	}, [pasteDraft, selApi, flashToast, focusTerminalInput]);
 	const selectionStart = useCallback(async () => {
 		setSelBusy(true);
 		const ok = await selApi("start");
@@ -898,13 +901,17 @@ export function TerminalTTYDScreen() {
             : `anexo salvo: /tmp/hok-attach/${file.name} (referencie no terminal)`,
           2200,
         );
+        // FIX 03/09 (anexo manual + Enter): após colar, foca o iframe do ttyd
+        // — o Enter do teclado nativo do celular vai para o terminal (antes
+        // ficava no input/overlay e o texto anexado nunca "ia").
+        setTimeout(() => focusTerminalInput(), 100);
       } catch (err) {
         flashToast("falha ao anexar: " + String((err as Error)?.message ?? err), 2500);
       } finally {
         setAttaching(false);
       }
     },
-    [serverBase, tokQ, activeSession, flashToast],
+    [serverBase, tokQ, activeSession, flashToast, focusTerminalInput],
   );
 
   const pressXKey = (xk: XKey) => {
