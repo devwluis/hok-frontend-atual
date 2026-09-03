@@ -49,7 +49,7 @@ function writeModelSelection(engine: EngineId, modelId: string) {
 
 // FIX 16/08 (UX): engine forçado persiste entre sessões via localStorage —
 // reler ao montar, salvar a cada troca. IDs v5: auto | hok | claude | opencode | hermes.
-type EngineId = "auto" | "hok" | "claude" | "opencode" | "hermes";
+type EngineId = "auto" | "hok" | "claude" | "opencode" | "hermes" | "orchestrator";
 // PARTE 2 (25/08): "Automático" removido do menu — era idêntico ao Hok Orquestrador
 // (mesma ausência de force flags no request; ver smart_chat.go classifyEngine).
 // "Hok Orquestrador" renomeado para "Hok OS" e promovido a único caminho padrão.
@@ -59,6 +59,7 @@ const ENGINE_OPTIONS: { id: EngineId; label: string; sub?: string; Icon?: (p: { 
   { id: "claude", label: "Claude Code" },
   { id: "opencode", label: "OpenCode Terminal" },
   { id: "hermes", label: "Hermes" },
+  { id: "orchestrator", label: "Orquestrador", sub: "subagentes + engines" },
 ];
 // Estilo de marca de cada engine (guia branding Hok OS, CSS em index.css)
 const ENGINE_BRAND: Record<EngineId, string> = {
@@ -67,6 +68,7 @@ const ENGINE_BRAND: Record<EngineId, string> = {
   claude: "engine-brand-claude",
   opencode: "engine-brand-opencode",
   hermes: "engine-brand-hermes",
+  orchestrator: "engine-brand-orchestrator",
 };
 function readForcedEngine(): EngineId {
   try {
@@ -1113,6 +1115,7 @@ export function ChatScreen() {
         forceClaudeCode: forcedEngine === "claude",
         forceHermes: forcedEngine === "hermes",
         forceOpenCode: forcedEngine === "opencode",
+        forceOrchestrator: forcedEngine === "orchestrator",
         ...(imageB64 ? { image_b64: imageB64, image_mime: imageMime || "image/jpeg" } : {}),
         ...(audioB64 ? { audio_b64: audioB64, audio_mime: audioMime || "audio/webm" } : {}),
         async: true,

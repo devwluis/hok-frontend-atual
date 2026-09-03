@@ -347,6 +347,21 @@
 }
 .engine-brand-hok .hok-h { color: #F5A623; }
 .engine-brand-hok .hok-orq { color: #FFFFFF; }
+.engine-brand-orchestrator {
+  font-family: 'PoppinsExtraBoldItalic', 'Poppins', 'Montserrat', sans-serif;
+  font-style: italic;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  background: linear-gradient(180deg, #A78BFA 0%, #F5A623 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: #A78BFA;
+}
+@supports not (-webkit-background-clip: text) {
+  .engine-brand-orchestrator { color: #A78BFA; -webkit-text-fill-color: currentColor; }
+}
 @supports not (-webkit-background-clip: text) {
   .hermes-title, .engine-brand-hermes { color: #FFD400; -webkit-text-fill-color: currentColor; }
   .opencode-title, .engine-brand-opencode { color: #C4C4C4; -webkit-text-fill-color: currentColor; }

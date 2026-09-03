@@ -3,13 +3,14 @@ import { motion, useAnimationFrame } from "framer-motion";
 import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-export type CoreEngine = "auto" | "hermes" | "claude_code" | "opencode";
+export type CoreEngine = "auto" | "hermes" | "claude_code" | "opencode" | "orchestrator";
 
 const ENGINE_COLOR: Record<CoreEngine, string> = {
   auto: "#f5b942",        // âmbar neutro — Automático
   hermes: "#a78bfa",      // roxo — Hermes
   claude_code: "#e8632a", // laranja — técnico (mantido)
   opencode: "#34d399",    // verde-esmeralda — OpenCode
+  orchestrator: "#f5a623", // dourado — Orquestrador
 };
 
 // Glow suave por engine (halo/drop-shadow)
@@ -18,6 +19,7 @@ const ENGINE_GLOW: Record<CoreEngine, string> = {
   hermes: "#ddd6fe",
   claude_code: "#e8632a",
   opencode: "#a7f3d0",
+  orchestrator: "#fde68a",
 };
 
 /* ── Spoke dot animado ── */
