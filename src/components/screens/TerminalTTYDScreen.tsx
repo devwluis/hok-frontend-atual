@@ -436,9 +436,12 @@ export function TerminalTTYDScreen() {
     // FIX reconexão (23/08): renovação SILÊNCIOSA — guarda a URL mais recente
     // em ref (usada ao recarregar o iframe na recuperação, com token fresco),
     // sem remontar o iframe a cada ciclo de ~4min.
+    const urlChanged = urlRef.current !== j.terminal_url;
     urlRef.current = j.terminal_url;
     if (aliveRef.current && !committedRef.current) {
       committedRef.current = true;
+      setUrl(j.terminal_url);
+    } else if (aliveRef.current && urlChanged && urlRef.current) {
       setUrl(j.terminal_url);
     }
     return typeof j.expires_in === "number" ? j.expires_in : 300;
@@ -1846,6 +1849,11 @@ export function TerminalTTYDScreen() {
             <input
               ref={attachInputRef}
               type="file"
+              // FIX 03/09 (anexo photo picker): accept="image/*" faz o Android
+              // abrir o PHOTO PICKER (Google Fotos) em vez do seletor de
+              // arquivos genérico — que permitia escolher arquivos vazios/
+              // placeholders 1x1 e quebrava o anexo de imagens no celular.
+              accept="image/*"
               className="hidden"
               data-testid="ov-attach-input"
               onChange={handleAttachFile}
