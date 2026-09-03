@@ -84,6 +84,10 @@ const k = (label: string, name: string): XKey => ({
 // TUDO o resto fica atrás do botão "..." (grupo extra).
 const ROW_KEYS: XKey[] = [
   k("←", "Left"), k("↑", "Up"), k("↓", "Down"), k("→", "Right"),
+  // FIX 03/09 (anexo/envio no celular): Enter na linha sempre visível. No
+  // Android o Enter do teclado nativo NÃO chega ao iframe cross-origin do
+  // ttyd — o botão envia via API (tmux send-keys), que sempre funciona.
+  k("⏎", "Enter"),
   { ...k("S-Tab", "BTab"), tid: "BTab" },
 ];
 const NAV_EXTRA: XKey[] = [
