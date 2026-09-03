@@ -500,11 +500,24 @@ export function TerminalTTYDScreen() {
       const res = await fetch(`${base}/terminal/token/validate?token=${encodeURIComponent(tokQ)}`, {
         method: "GET",
       });
+      // FIX 03/09 (reconnect persistente em background): quando o app fica
+      // suspenso o setTimeout de renovação NÃO roda (JS pausado). Ao voltar, o
+      // token pode ter expirado (401). Se simplesmente remontar o iframe, ele
+      // recarrega com o token VELHO expirado → 401 → overlay "Press to
+      // Reconnect" de novo. Aqui renovamos o token ANTES de reportar ok.
+      if (res.status === 401) {
+        try {
+          await fetchToken();
+          return true;
+        } catch {
+          return res.ok || false;
+        }
+      }
       return res.ok || res.status === 401;
     } catch {
       return false;
     }
-  }, [serverBase, tokQ]);
+  }, [serverBase, tokQ, fetchToken]);
 
   useEffect(() => {
     if (!recovering) return;
