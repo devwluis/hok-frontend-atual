@@ -867,13 +867,23 @@ export function TerminalTTYDScreen() {
   const sendToKeys = useCallback(
     async (payload: { key?: string; text?: string }) => {
       const qs = new URLSearchParams({ token: tokQ });
-      await fetch(`${serverBase}/terminal/ttyd/key?${qs}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, session: activeSession }),
-      }).catch(() => {});
+      try {
+        const res = await fetch(`${serverBase}/terminal/ttyd/key?${qs}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload, session: activeSession }),
+        });
+        if (!res.ok) {
+          // FIX 03/09: expõe o erro do envio de tecla (antes engolia com
+          // catch vazio — o ⏎ podia falhar silenciosamente no mobile).
+          const txt = await res.text().catch(() => "");
+          flashToast(`falha ao enviar tecla (${res.status}) ${txt.slice(0, 40)}`, 2500);
+        }
+      } catch (e) {
+        flashToast("falha ao enviar tecla: " + String((e as Error)?.message ?? e), 2500);
+      }
     },
-    [serverBase, tokQ, activeSession],
+    [serverBase, tokQ, activeSession, flashToast],
   );
 
   // ── ANEXO de arquivo no terminal (01/09, Opção B) ────────────────────────
@@ -905,17 +915,17 @@ export function TerminalTTYDScreen() {
             : `anexo salvo: /tmp/hok-attach/${file.name} (referencie no terminal)`,
           2200,
         );
-        // FIX 03/09 (anexo manual + Enter): após colar, foca o iframe do ttyd
-        // — o Enter do teclado nativo do celular vai para o terminal (antes
-        // ficava no input/overlay e o texto anexado nunca "ia").
-        setTimeout(() => focusTerminalInput(), 100);
+        // FIX 03/09 v2: NÃO focar o iframe após o anexo — no Android o foco
+        // reabre o teclado nativo e cobre a barra de teclas (onde está o
+        // botão ⏎ que envia o anexo). O caminho já foi colado via tmux; o
+        // usuário toca no ⏎ da barra para enviar.
       } catch (err) {
         flashToast("falha ao anexar: " + String((err as Error)?.message ?? err), 2500);
       } finally {
         setAttaching(false);
       }
     },
-    [serverBase, tokQ, activeSession, flashToast, focusTerminalInput],
+    [serverBase, tokQ, activeSession, flashToast],
   );
 
   const pressXKey = (xk: XKey) => {
