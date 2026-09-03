@@ -15,12 +15,26 @@ import { type PendingAction } from "@/lib/chat-stream";
 import { detectN8NIntent, N8N_SYSTEM_PROMPT, type N8NModeState } from "@/lib/n8n-expert";
 import { OwnerGate } from "@/components/shell/OwnerGate";
 
+// FIX 03/09: opção de subagente manual do orquestrador (vinda de /agents/crud).
+type AgentOption = { id: string; name: string; desc: string; kind: string; active: boolean };
+
 // Unified settings key
 const SETTINGS_KEY = "hokma.settings.v1";
 const N8N_SETTINGS_KEY = "hokma.n8n.settings.v1";
 const CHAT_STATE_KEY = "hokma.chat.state.v1";
 const ENGINE_KEY = "hokma.engine.v1";
 const MODEL_SELECT_KEY = "hokma.model.selected.v1";
+// FIX 03/09: subagente manual do orquestrador escolhido no seletor (persiste).
+const ORCH_AGENT_KEY = "hokma.orchestrator.agent.v1";
+function readOrchAgent(): string {
+  try {
+    const v = localStorage.getItem(ORCH_AGENT_KEY);
+    return typeof v === "string" ? v : "";
+  } catch { return ""; }
+}
+function writeOrchAgent(id: string) {
+  try { localStorage.setItem(ORCH_AGENT_KEY, id); } catch { /* ignore */ }
+}
 
 type ModelSelection = { engine: EngineId; modelId: string; updatedAt: string };
 
@@ -502,6 +516,9 @@ export function ChatScreen() {
   const [selectedModel, setSelectedModel] = useState<string>(() => readModelSelection()?.modelId ?? "auto");
   const [n8nMode, setN8nMode] = useState<N8NModeState>("off");
   const [forcedEngine, setForcedEngine] = useState<EngineId>(() => readModelSelection()?.engine ?? readForcedEngine());
+  // FIX 03/09: subagente manual do orquestrador ("" = auto)
+  const [orchAgent, setOrchAgent] = useState<string>(() => readOrchAgent());
+  const [orchAgents, setOrchAgents] = useState<AgentOption[]>([]);
   const [resolvedEngine, setResolvedEngine] = useState<"claude_code" | "hermes" | "opencode" | "opencode_serve" | "chat" | null>(null);
   const [showEnginePicker, setShowEnginePicker] = useState(false);
   const [showModelsPicker, setShowModelsPicker] = useState(false);
@@ -513,6 +530,26 @@ export function ChatScreen() {
   const [activeModelId, setActiveModelId] = useState<string>("auto");
   const [modelToast, setModelToast] = useState<string | null>(null);
   const lastToastModelRef = useRef<string | null>(null);
+
+  // FIX 03/09: persiste o subagente manual do orquestrador.
+  useEffect(() => { writeOrchAgent(orchAgent); }, [orchAgent]);
+
+  // FIX 03/09: carrega subagentes do orquestrador para seleção manual no seletor.
+  useEffect(() => {
+    if (!showEnginePicker && forcedEngine !== "orchestrator") return;
+    let cancelled = false;
+    const { serverUrl, token } = readSettings();
+    if (!serverUrl || !token) return;
+    fetch(`${serverUrl}/agents/crud`, { headers: { "X-Hok-Token": token } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        const all: AgentOption[] = (d.agents || []).filter((a: AgentOption) => a.active || a.id === orchAgent);
+        setOrchAgents(all);
+      })
+      .catch(() => { /* offline: mantém lista anterior */ });
+    return () => { cancelled = true; };
+  }, [showEnginePicker, forcedEngine]);
 
   useEffect(() => {
     if (showModelsPicker && !modelsList) {
@@ -652,6 +689,8 @@ export function ChatScreen() {
 
   const activeModel = getModel(selectedModel);
   const engineLabel = ENGINE_OPTIONS.find((o) => o.id === forcedEngine)?.label ?? "Hok OS";
+  // FIX 03/09: nome do subagente manual quando orquestrador tem agent_id.
+  const orchAgentName = orchAgent ? orchAgents.find((a) => a.id === orchAgent)?.name ?? "" : "";
 
   // Nome do engine para o card "processando" do efeito Núcleo — cobre os
   // engines que o resolvedEngine reconhece (Hermes, Claude Code, OpenCode —
@@ -661,6 +700,7 @@ export function ChatScreen() {
     if (forcedEngine === "claude") return "Claude Code";
     if (forcedEngine === "opencode") return "OpenCode";
     if (forcedEngine === "hok") return "Hok OS";
+    if (forcedEngine === "orchestrator") return orchAgentName ? `Orquestrador → ${orchAgentName}` : "Orquestrador";
     if (forcedEngine !== "auto") return null;
     if (resolvedEngine === "hermes") return "Hermes";
     if (resolvedEngine === "claude_code") return "Claude Code";
@@ -1116,6 +1156,7 @@ export function ChatScreen() {
         forceHermes: forcedEngine === "hermes",
         forceOpenCode: forcedEngine === "opencode",
         forceOrchestrator: forcedEngine === "orchestrator",
+        ...(forcedEngine === "orchestrator" && orchAgent ? { agent_id: orchAgent } : {}),
         ...(imageB64 ? { image_b64: imageB64, image_mime: imageMime || "image/jpeg" } : {}),
         ...(audioB64 ? { audio_b64: audioB64, audio_mime: audioMime || "audio/webm" } : {}),
         async: true,
@@ -1569,6 +1610,44 @@ export function ChatScreen() {
                       {forcedEngine === opt.id && <span className="text-[color:var(--amber)]">✔</span>}
                     </button>
                   ))}
+                  {/* FIX 03/09: submenu de subagentes quando Orquestrador selecionado */}
+                  {forcedEngine === "orchestrator" && (
+                    <div className="mt-1 border-t border-border pt-1">
+                      <div className="px-2 py-1 font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+                        Subagente
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { setOrchAgent(""); setShowEnginePicker(false); }}
+                        className={cn(
+                          "flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px] text-left transition-colors hover:bg-[color:var(--amber)]/10",
+                          orchAgent === "" ? "text-[color:var(--amber)]" : "text-foreground",
+                        )}
+                      >
+                        <span>Orquestrador (auto)</span>
+                        {orchAgent === "" && <span className="text-[color:var(--amber)]">✔</span>}
+                      </button>
+                      {orchAgents.filter((a) => a.kind === "subagent").length === 0 && (
+                        <div className="px-2 py-1 text-[10px] text-muted-foreground">
+                          Nenhum subagente. Crie na aba Agentes.
+                        </div>
+                      )}
+                      {orchAgents.filter((a) => a.kind === "subagent").map((a) => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => { setOrchAgent(a.id); setShowEnginePicker(false); }}
+                          className={cn(
+                            "flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px] text-left transition-colors hover:bg-[color:var(--amber)]/10",
+                            orchAgent === a.id ? "text-[color:var(--amber)]" : "text-foreground",
+                          )}
+                        >
+                          <span className="truncate">{a.name}</span>
+                          {orchAgent === a.id && <span className="text-[color:var(--amber)]">✔</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
