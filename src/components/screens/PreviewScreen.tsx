@@ -4,7 +4,7 @@ import { RefreshCw, MonitorPlay, AlertTriangle } from "lucide-react";
 import { ScreenFrame, ScreenHeader, Card } from "@/components/shell/ScreenFrame";
 
 const PREVIEW_KEY = "hokma.preview.url.v1";
-const DEFAULT_PREVIEW_URL = "/preview/vnc_lite.html";
+const DEFAULT_PREVIEW_URL = "/preview/vnc_lite.html?path=preview/websockify";
 
 // URL alvo do iframe. Usa caminho relativo (mesma origem) para passar
 // pelo proxy /preview/ do nginx -> websockify 6080. Para trocar depois,
