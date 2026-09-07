@@ -4,10 +4,11 @@ import { RefreshCw, MonitorPlay, AlertTriangle } from "lucide-react";
 import { ScreenFrame, ScreenHeader, Card } from "@/components/shell/ScreenFrame";
 
 const PREVIEW_KEY = "hokma.preview.url.v1";
-const DEFAULT_PREVIEW_URL = "http://localhost:6080";
+const DEFAULT_PREVIEW_URL = "/preview/vnc_lite.html";
 
-// URL alvo do iframe. Para trocar depois, basta mudar o default acima ou
-// editar o campo na própria tela (persistido em localStorage).
+// URL alvo do iframe. Usa caminho relativo (mesma origem) para passar
+// pelo proxy /preview/ do nginx -> websockify 6080. Para trocar depois,
+// basta editar o campo na própria tela (persistido em localStorage).
 function loadPreviewUrl(): string {
   try {
     const raw = localStorage.getItem(PREVIEW_KEY);
@@ -116,7 +117,6 @@ export function PreviewScreen() {
           onError={() => { setError(true); setLoaded(false); }}
           title="Preview da tela"
           className="h-full w-full border-0 bg-white"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock allow-popups"
           referrerPolicy="no-referrer"
         />
       </div>
