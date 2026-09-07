@@ -2,6 +2,7 @@ export type ScreenId =
   | "chat"
   | "terminal"
   | "n8n"
+  | "preview"
   | "brain"
   | "models"
   | "settings"

@@ -10,6 +10,7 @@ import { ChatScreen } from "@/components/screens/ChatScreen";
 import { TerminalScreen } from "@/components/screens/TerminalScreen";
 import { TerminalTTYDScreen } from "@/components/screens/TerminalTTYDScreen";
 import { N8NScreen } from "@/components/screens/N8NScreen";
+import { PreviewScreen } from "@/components/screens/PreviewScreen";
 import { BrainScreen } from "@/components/screens/BrainScreen";
 import { ModelsScreen } from "@/components/screens/ModelsScreen";
 import { SettingsScreen } from "@/components/screens/SettingsScreen";
@@ -36,6 +37,7 @@ const SCREENS: Record<string, { render: () => ReactNode }> = {
   // O xterm in-app (TerminalScreen) permanece versionado como rollback.
   terminal: { render: () => <TerminalTTYDScreen /> },
   n8n: { render: () => <N8NScreen /> },
+  preview: { render: () => <PreviewScreen /> },
   brain: { render: () => <BrainScreen /> },
   models: { render: () => <ModelsScreen /> },
   settings: { render: () => <SettingsScreen /> },
