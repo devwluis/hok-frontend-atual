@@ -24,6 +24,19 @@ function persistPreviewUrl(url: string) {
   localStorage.setItem(PREVIEW_KEY, JSON.stringify({ url }));
 }
 
+// Normaliza o valor digitado para src seguro do iframe:
+// - caminhos relativos (ex: /preview/vnc.html) mantidos como estão
+// - URLs com protocolo (https://..., ws://...) mantidas
+// - domínios sem protocolo (ex: www.google.com) ganham https://
+// - vazio cai de volta no default
+function normalizePreviewUrl(input: string): string {
+  const v = input.trim();
+  if (!v) return DEFAULT_PREVIEW_URL;
+  if (v.startsWith("/")) return v; // relativa (same-origin, ex. /preview/...)
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(v)) return v; // já tem protocolo
+  return `https://${v}`; // domínio puro -> https
+}
+
 export function PreviewScreen() {
   const [url, setUrl] = useState<string>(loadPreviewUrl);
   const [src, setSrc] = useState<string>(loadPreviewUrl);
@@ -31,8 +44,10 @@ export function PreviewScreen() {
   const [error, setError] = useState(false);
 
   const handleApply = () => {
-    persistPreviewUrl(url.trim());
-    setSrc(url.trim());
+    const normalized = normalizePreviewUrl(url);
+    setUrl(normalized);
+    persistPreviewUrl(normalized);
+    setSrc(normalized);
     setLoaded(false);
     setError(false);
   };
@@ -68,6 +83,7 @@ export function PreviewScreen() {
             data-testid="input-preview-url"
           />
           <button
+            type="button"
             onClick={handleApply}
             data-testid="button-preview-apply"
             className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[color:var(--amber)] px-3 py-2 text-sm font-semibold text-[color:var(--amber-foreground)] shadow-[var(--shadow-amber-glow)] hover:opacity-95 transition-opacity"
@@ -75,6 +91,7 @@ export function PreviewScreen() {
             Aplicar
           </button>
           <button
+            type="button"
             onClick={handleReload}
             data-testid="button-preview-reload"
             className="flex shrink-0 items-center justify-center rounded-xl border border-border px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
