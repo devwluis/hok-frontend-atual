@@ -6,6 +6,7 @@ import { ScreenFrame, ScreenHeader, Card } from "@/components/shell/ScreenFrame"
 import { usePersistentState } from "@/lib/use-persistent-state";
 import { hokGet } from "@/lib/hok-api";
 import { useOpenRouterCredits } from "@/hooks/use-openrouter-credits";
+import { useDeepSeekCredits } from "@/hooks/use-deepseek-credits";
 import { useOpenCodeStatus } from "@/hooks/use-opencode-status";
 import { cn } from "@/lib/utils";
 import { BUILD_ID } from "@/lib/build-info";
@@ -68,14 +69,16 @@ export function readTerminalTheme(): string {
 // <key>Configured como boolean — sem valores em texto puro)
 const SERVER_KEY_MAP: Record<string, string> = {
   OpenRouter: "openrouterKey",
+  DeepSeek: "deepseekKey",
 };
 
-// Painel enxuto para clientes: apenas conexão do servidor + chave OpenRouter.
+// Painel enxuto para clientes: conexão do servidor + chaves OpenRouter/DeepSeek.
 // As demais chaves de provedores são configuradas no servidor (server-side).
 const KEYS = [
   { k: "Server URL", placeholder: "https://api.hokma.dev", description: "URL base do servidor HOK externo" },
   { k: "HOK_TOKEN", placeholder: "hok_••••••••", description: "Token de autenticação do servidor" },
   { k: "OpenRouter", placeholder: "or_•••", description: "API Key OpenRouter (para o painel de créditos)" },
+  { k: "DeepSeek", placeholder: "ds_•••", description: "API Key DeepSeek (para o painel de créditos)" },
 ];
 
 function formatReset(iso: string | undefined): string {
@@ -157,6 +160,7 @@ export function SettingsScreen() {
   const [serverError, setServerError] = useState<string | null>(null);
 
   const credits = useOpenRouterCredits();
+  const deepseekCredits = useDeepSeekCredits();
   const opencode = useOpenCodeStatus();
 
   const markSaved = (k: string) => {
@@ -331,6 +335,39 @@ export function SettingsScreen() {
               {detail && (
                 <p className="text-[10px] text-muted-foreground/70">Uso no mês: {detail}</p>
               )}
+            </>
+          );
+        })()}
+      </Card>
+
+      {/* ── Card Créditos DeepSeek ── */}
+      <Card className="mt-4 space-y-3">
+        <CreditCardHeader
+          icon={<Zap className="h-5 w-5" />}
+          title="Créditos DeepSeek"
+          subtitle="Saldo da chave do servidor"
+          onRefresh={deepseekCredits.refresh}
+          loading={deepseekCredits.loading}
+          refreshTestId="button-deepseek-credits-refresh"
+        />
+        {deepseekCredits.error && (
+          <p className="text-xs text-destructive">Não foi possível carregar: {deepseekCredits.error}</p>
+        )}
+        {!deepseekCredits.error && !deepseekCredits.data && (
+          <p className="text-xs text-muted-foreground">Carregando...</p>
+        )}
+        {deepseekCredits.data && (() => {
+          const d = deepseekCredits.data;
+          return (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                <CreditGridCell label="Carregado" value={`$${d.topped_up_balance}`} />
+                <CreditGridCell label="Bônus concedido" value={`$${d.granted_balance}`} />
+                <CreditGridCell label="Saldo atual" value={`$${d.balance}`} highlight />
+              </div>
+              <p className="text-[10px] text-muted-foreground/70">
+                Moeda: {d.currency} · {d.is_available ? "disponível" : "indisponível"}
+              </p>
             </>
           );
         })()}
