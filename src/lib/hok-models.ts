@@ -1,11 +1,9 @@
 export type HokModel = { id: string; label: string; provider: string; color: string; description: string; free: boolean; tags: string[]; };
 
 export const FALLBACK_MODELS: HokModel[] = [
-  { id: "auto", label: "Auto", provider: "HOK", color: "#F5A623", description: "HOK escolhe o modelo ideal para cada tarefa", free: true, tags: ["auto", "hok", "free", "gratuito"] },
-  { id: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat v3.1", provider: "OpenCode Zen", color: "#06b6d4", description: "DeepSeek Chat v3.1 — gratuito via OpenCode Zen", free: true, tags: ["deepseek", "deepseek/deepseek-chat-v3.1", "opencode zen", "free", "gratuito"] },
-  { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "OpenRouter", color: "#3b82f6", description: "Gemini 2.5 Flash — multimodal e contexto longo", free: false, tags: ["google", "gemini", "google/gemini-2.5-flash", "openrouter"] },
-  { id: "google/gemini-2.5-flash-lite", label: "Gemini Lite", provider: "OpenRouter", color: "#60a5fa", description: "Gemini Flash Lite — leve para tarefas simples", free: true, tags: ["google", "gemini", "google/gemini-2.5-flash-lite", "openrouter", "free", "gratuito"] },
-  { id: "deepseek/deepseek-chat-v3.1", label: "DeepSeek Chat v3.1", provider: "OpenRouter", color: "#06b6d4", description: "DeepSeek Chat v3.1 — código e análise técnica", free: true, tags: ["deepseek", "deepseek/deepseek-chat-v3.1", "openrouter", "free", "gratuito"] },
+  { id: "deepseek-native/deepseek-flash", label: "DeepSeek V4 Flash", provider: "DeepSeek", color: "#06b6d4", description: "DeepSeek V4 Flash — nativo via api.deepseek.com (DEEPSEEK_API_KEY)", free: false, tags: ["deepseek", "deepseek-native", "deepseek-flash", "nativo"] },
+  { id: "deepseek-native/deepseek-v4-pro", label: "DeepSeek V4 Pro", provider: "DeepSeek", color: "#0891b2", description: "DeepSeek V4 Pro — nativo via api.deepseek.com (DEEPSEEK_API_KEY)", free: false, tags: ["deepseek", "deepseek-native", "deepseek-v4-pro", "nativo"] },
+  { id: "deepseek/deepseek-v4-flash-0731", label: "DeepSeek V4 Flash 0731", provider: "OpenRouter", color: "#06b6d4", description: "DeepSeek V4 Flash 0731 — pago via OpenRouter (fallback quando catálogo indisponível)", free: false, tags: ["deepseek", "deepseek/deepseek-v4-flash-0731", "openrouter", "pago"] },
 ];
 
 let modelsCache: HokModel[] | null = null;
@@ -148,7 +146,9 @@ function prettyLabelFromId(id: string): string {
 }
 
 export function getModel(id: string): HokModel {
-  if (id === "auto") return FALLBACK_MODELS[0];
+  if (id === "auto") {
+    return { id: "auto", label: "Auto", provider: "HOK", color: "#F5A623", description: "HOK escolhe o modelo ideal para cada tarefa", free: true, tags: ["auto", "hok", "free", "gratuito"] };
+  }
   const found = modelsCache?.find((x) => x.id === id) ?? FALLBACK_MODELS.find((x) => x.id === id);
   if (found) return found;
   const provider = id.split("/")[0] ?? "OpenRouter";
@@ -177,9 +177,25 @@ export async function getFreeModels(force = false): Promise<HokModel[]> {
 // flag para true quando quisermos reabilitar seleção de modelos pagos.
 export const SHOW_PAID_MODELS = false;
 
+// ALLOWLIST MÍNIMA DE PAGOS (08/09, item 6): modelos pagos aprovados para
+// aparecer no seletor MESMO com SHOW_PAID_MODELS=false. Grupo pago "OpenRouter"
+// exclusivo para deepseek/deepseek-v4-flash-0731. O resto do catálogo pago
+// continua oculto.
+export const PAID_MODEL_ALLOWLIST: string[] = [
+  "deepseek/deepseek-v4-flash-0731",
+  // 10/09: DeepSeek NATIVO (api.deepseek.com via DEEPSEEK_API_KEY) — grupo
+  // isolado "DeepSeek" no seletor. Aparecem como PAGO (allowlist) pois o
+  // chat web usa OpenRouter como padrão; estes são opção nativa explícita.
+  "deepseek-native/deepseek-flash",
+  "deepseek-native/deepseek-v4-pro",
+];
+
 export async function getPaidModels(force = false): Promise<HokModel[]> {
-  if (!SHOW_PAID_MODELS) return []; // TEMP: picker free-only
   const models = await getModels(force);
+  if (!SHOW_PAID_MODELS) {
+    // Allowlist mínima: só os modelos pagos explicitamente aprovados.
+    return models.filter((x) => PAID_MODEL_ALLOWLIST.includes(x.id));
+  }
   return models.filter((x) => !x.free && x.provider !== "OpenCode Zen");
 }
 
