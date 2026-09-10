@@ -7,6 +7,10 @@ export type DeepSeekCredits = {
   currency: string;
   granted_balance: string;
   topped_up_balance: string;
+  /** total carregado de referência (baseline + recargas), derivado localmente */
+  total_loaded: number;
+  /** gasto até o momento = total_loaded - balance */
+  spent: number;
   is_available: boolean;
   source: string;
 };

@@ -358,15 +358,18 @@ export function SettingsScreen() {
         )}
         {deepseekCredits.data && (() => {
           const d = deepseekCredits.data;
+          const total = d.total_loaded ?? 0;
+          const gasto = d.spent ?? 0;
+          const saldo = parseFloat(d.balance) || 0;
           return (
             <>
               <div className="grid grid-cols-3 gap-2">
-                <CreditGridCell label="Carregado" value={`$${d.topped_up_balance}`} />
-                <CreditGridCell label="Bônus concedido" value={`$${d.granted_balance}`} />
-                <CreditGridCell label="Saldo atual" value={`$${d.balance}`} highlight />
+                <CreditGridCell label="Total carregado" value={`$${total.toFixed(2)}`} />
+                <CreditGridCell label="Gasto até o momento" value={`$${gasto.toFixed(2)}`} danger />
+                <CreditGridCell label="Saldo atual" value={`$${saldo.toFixed(2)}`} highlight />
               </div>
               <p className="text-[10px] text-muted-foreground/70">
-                Moeda: {d.currency} · {d.is_available ? "disponível" : "indisponível"}
+                Moeda: {d.currency} · bônus: ${d.granted_balance} · {d.is_available ? "disponível" : "indisponível"}
               </p>
             </>
           );
