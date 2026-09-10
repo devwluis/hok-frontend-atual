@@ -42,9 +42,23 @@ export function useDeepSeekCredits() {
     }
   }, []);
 
+  // setBaseline força o "total carregado" de referência (override manual) e
+  // recarrega o card com os valores recalculados. Lança erro em caso de falha.
+  const setBaseline = useCallback(async (totalLoaded: number) => {
+    const { serverUrl, token } = readSettings();
+    if (!serverUrl || !token) throw new Error("Configure Server URL e HOK_TOKEN nas Configurações.");
+    const res = await fetch(`${serverUrl.replace(/\/$/, "")}/deepseek/credits/baseline`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Hok-Token": token },
+      body: JSON.stringify({ total_loaded: totalLoaded }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await refresh();
+  }, [refresh]);
+
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  return { data, loading, error, refresh };
+  return { data, loading, error, refresh, setBaseline };
 }

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import type { ReactNode } from "react";
-import { Eye, EyeOff, Check, Save, AlertCircle, Server, RefreshCw, Zap, Wallet } from "lucide-react";
+import { Eye, EyeOff, Check, Save, AlertCircle, Server, RefreshCw, Zap, Wallet, Pencil, X } from "lucide-react";
 import { ScreenFrame, ScreenHeader, Card } from "@/components/shell/ScreenFrame";
 import { usePersistentState } from "@/lib/use-persistent-state";
 import { hokGet } from "@/lib/hok-api";
@@ -128,11 +128,12 @@ function CreditCardHeader({ icon, title, subtitle, onRefresh, loading, statusBad
   );
 }
 
-function CreditGridCell({ label, value, highlight, danger }: {
+function CreditGridCell({ label, value, highlight, danger, action }: {
   label: string;
   value: string;
   highlight?: boolean;
   danger?: boolean;
+  action?: ReactNode;
 }) {
   return (
     <div className={cn(
@@ -141,7 +142,10 @@ function CreditGridCell({ label, value, highlight, danger }: {
         : highlight ? "border border-emerald-500/20 bg-emerald-500/10"
         : "bg-muted/60",
     )}>
-      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <div className="flex items-center justify-between gap-1">
+        <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
+        {action}
+      </div>
       <p className={cn(
         "mt-0.5 font-mono text-sm font-semibold",
         danger ? "text-red-400" : highlight ? "text-emerald-400" : "text-foreground",
@@ -162,6 +166,30 @@ export function SettingsScreen() {
   const credits = useOpenRouterCredits();
   const deepseekCredits = useDeepSeekCredits();
   const opencode = useOpenCodeStatus();
+
+  // Edição inline do "Total carregado" do card DeepSeek (override do baseline).
+  const [editingDS, setEditingDS] = useState(false);
+  const [dsTotalInput, setDsTotalInput] = useState("");
+  const [dsSaving, setDsSaving] = useState(false);
+  const [dsSaveError, setDsSaveError] = useState<string | null>(null);
+
+  const saveDsTotal = async () => {
+    const n = parseFloat(dsTotalInput.replace(",", "."));
+    if (!Number.isFinite(n) || n < 0) {
+      setDsSaveError("Informe um valor numérico maior ou igual a 0.");
+      return;
+    }
+    setDsSaving(true);
+    setDsSaveError(null);
+    try {
+      await deepseekCredits.setBaseline(n);
+      setEditingDS(false);
+    } catch (e) {
+      setDsSaveError(e instanceof Error ? e.message : "Erro ao salvar.");
+    } finally {
+      setDsSaving(false);
+    }
+  };
 
   const markSaved = (k: string) => {
     setSavedAt((s) => ({ ...s, [k]: Date.now() }));
@@ -364,10 +392,60 @@ export function SettingsScreen() {
           return (
             <>
               <div className="grid grid-cols-3 gap-2">
-                <CreditGridCell label="Total carregado" value={`$${total.toFixed(2)}`} />
+                <CreditGridCell
+                  label="Total carregado"
+                  value={`$${total.toFixed(2)}`}
+                  action={
+                    <button
+                      onClick={() => { setDsTotalInput(total.toFixed(2)); setDsSaveError(null); setEditingDS(true); }}
+                      className="rounded p-0.5 text-muted-foreground transition-colors hover:text-[color:var(--amber)]"
+                      aria-label="Ajustar total carregado"
+                      title="Ajustar total carregado"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  }
+                />
                 <CreditGridCell label="Gasto até o momento" value={`$${gasto.toFixed(2)}`} danger />
                 <CreditGridCell label="Saldo atual" value={`$${saldo.toFixed(2)}`} highlight />
               </div>
+              {editingDS && (
+                <div className="space-y-1">
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      inputMode="decimal"
+                      value={dsTotalInput}
+                      onChange={(e) => setDsTotalInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") saveDsTotal(); if (e.key === "Escape") setEditingDS(false); }}
+                      autoFocus
+                      placeholder="Total já carregado (ex: 10.00)"
+                      className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-[color:var(--amber)] focus:shadow-[var(--shadow-amber-glow)]"
+                    />
+                    <button
+                      onClick={saveDsTotal}
+                      disabled={dsSaving}
+                      className="inline-flex items-center gap-1 rounded-xl bg-[color:var(--amber)] px-3 py-2 text-xs font-semibold text-[color:var(--amber-foreground)] transition-opacity hover:opacity-95 disabled:opacity-50"
+                    >
+                      {dsSaving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                      Salvar
+                    </button>
+                    <button
+                      onClick={() => setEditingDS(false)}
+                      className="inline-flex items-center rounded-xl border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground"
+                      aria-label="Cancelar"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {dsSaveError && <p className="text-[10px] text-destructive">{dsSaveError}</p>}
+                  <p className="text-[10px] text-muted-foreground/70">
+                    Informe o total já carregado na conta (não o saldo). O gasto é recalculado a partir dele.
+                  </p>
+                </div>
+              )}
               <p className="text-[10px] text-muted-foreground/70">
                 Moeda: {d.currency} · bônus: ${d.granted_balance} · {d.is_available ? "disponível" : "indisponível"}
               </p>
