@@ -250,6 +250,7 @@ export function TerminalTTYDScreen() {
   // iframe.focus() feito DENTRO do gesto de toque delega o foco ao elemento
   // ativo do iframe (textarea do xterm) e o Chromium abre o IME.
   const iframeElRef = useRef<HTMLIFrameElement | null>(null);
+  const lastPasteRef = useRef<{ text: string; ts: number }>({ text: "", ts: 0 });
   // KBDIAG (27/08): buffer de diagnóstico só de foco, isolado, sem afetar
   // nenhum comportamento existente. window.__KB_DIAG para exportar via console.
   const kbDiagRef = useRef<{ t: number; ev: string; detail: string }[]>([]);
@@ -632,6 +633,74 @@ export function TerminalTTYDScreen() {
 		setToast(msg);
 		setTimeout(() => setToast(""), ms);
 	}, []);
+	// FIX paste+kbd (12/09): intercepta paste nativo (teclado celular,
+	// texto previsual, autocorreção) e roteia pela API rápida
+	// (load-buffer + paste-buffer) em vez do WebSocket ttyd lento
+	// (send-keys char-by-char). Deduplica eventos rápidos do MIUI
+	// (autocorreção dispara composition + commit → duplicação).
+	// LIMITE: sem limite de chars — tudo vai p/ API rápida.
+	// COOLDOWN: 2s após cada paste sucesso — ignora eventos repetidos
+	// do IME que chegam atrasados (causa "oladf", "testefd").
+	const pasteCooldownRef = useRef(false);
+	const handlePasteInterceptor = useCallback((e: ClipboardEvent) => {
+		if (err || !url) return;
+		if (pasteCooldownRef.current) return;
+		const text = e.clipboardData?.getData("text") ?? "";
+		if (!text) return;
+		// Bloqueio: texto multilinha = provável histórico do clipboard
+		if (text.includes("\n")) return;
+		e.preventDefault();
+		e.stopPropagation();
+		const now = Date.now();
+		const last = lastPasteRef.current;
+		if (last.text.length > 0 && text.includes(last.text) && now - last.ts < 2000) {
+			return;
+		}
+		if (last.text.length > 0 && last.text.includes(text) && now - last.ts < 2000) {
+			lastPasteRef.current = { text, ts: now };
+			return;
+		}
+		lastPasteRef.current = { text, ts: now };
+		pasteCooldownRef.current = true;
+		setTimeout(() => { pasteCooldownRef.current = false; }, 2000);
+		selApi("paste", text).then(() => {
+			flashToast("colado ✓", 1200);
+			setTimeout(() => focusTerminalInput(), 100);
+		});
+	}, [err, url, selApi, flashToast, focusTerminalInput]);
+	// FIX paste+kbd (12/09): listener de paste em CAPTURA no documento
+	// — intercepta paste do teclado celular (texto previsual, autocorreção)
+	// ANTES de chegar ao iframe cross-origin. Roteado para a API rápida
+	// (load-buffer + paste-buffer) em vez do WebSocket ttyd lento.
+	useEffect(() => {
+		const onPaste = (e: Event) => handlePasteInterceptor(e as ClipboardEvent);
+		document.addEventListener("paste", onPaste, true);
+		return () => document.removeEventListener("paste", onPaste, true);
+	}, [handlePasteInterceptor]);
+	// FIX IME (12/09): logar eventos IME dentro do iframe ttyd.
+	// Se same-origin, podemos interceptar IME direto (causa extras/duplicação).
+	useEffect(() => {
+		const iframe = iframeElRef.current;
+		if (!iframe) return;
+		const onLoad = () => {
+			try {
+				const doc = iframe.contentDocument;
+				if (!doc) { console.log("[IME] no contentDocument"); return; }
+				console.log("[IME] accessible:", doc.location?.href);
+				doc.addEventListener("input", (e: Event) => {
+					console.log("[IME] input", (e.target as HTMLElement)?.tagName, JSON.stringify((e as InputEvent).data));
+				}, true);
+				doc.addEventListener("compositionend", (e: Event) => {
+					console.log("[IME] compEnd", (e as CompositionEvent).data);
+				}, true);
+				console.log("[IME] listeners added");
+			} catch (err) {
+				console.log("[IME] cross-origin:", (err as Error)?.message);
+			}
+		};
+		iframe.addEventListener("load", onLoad);
+		return () => iframe.removeEventListener("load", onLoad);
+	}, []);
 	const copyAll = useCallback(async () => {
 		setSelBusy(true);
 		const res = await selApi("all");
@@ -649,12 +718,14 @@ export function TerminalTTYDScreen() {
 	// pode copiar trecho, fechar, ou rolar dentro do modal.
 	const [histOpen, setHistOpen] = useState(false);
 	const [histText, setHistText] = useState("");
+	const [histSource, setHistSource] = useState<string>("");
 	const [histLoading, setHistLoading] = useState(false);
 	const [histErr, setHistErr] = useState<string | null>(null);
 	const openHistory = useCallback(async () => {
 		setHistOpen(true);
 		setHistLoading(true);
 		setHistErr(null);
+		setHistSource("");
 		// FIX log-rotativo-tui (30/08): tenta primeiro o log rotativo
 		// (/terminal/ttyd/log) — ele é o ÚNICO caminho que captura saída
 		// de TUI em alternate screen (opencode/claude). Fallback para
@@ -676,6 +747,7 @@ export function TerminalTTYDScreen() {
 				if (typeof j?.text === "string") {
 					setHistLoading(false);
 					setHistText(j.text);
+					setHistSource(j.source ?? "");
 					return;
 				}
 			}
@@ -690,6 +762,44 @@ export function TerminalTTYDScreen() {
 			setHistErr("falha ao carregar histórico do tmux");
 		}
 	}, [selApi, serverBase, tokQ, activeSession]);
+
+	// Auto-refresh: enquanto o modal de histórico estiver aberto, busca
+	// dados a cada 3s para mostrar conteúdo novo sem precisar fechar/reabrir.
+	const histRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	useEffect(() => {
+		if (!histOpen) {
+			if (histRefreshRef.current) {
+				clearInterval(histRefreshRef.current);
+				histRefreshRef.current = null;
+			}
+			return;
+		}
+		// Refresh imediato já foi feito por openHistory; agenda o próximo
+		histRefreshRef.current = setInterval(async () => {
+			try {
+				const r = await fetch(
+					`${serverBase}/terminal/ttyd/log?session=${encodeURIComponent(activeSession)}&token=${encodeURIComponent(tokQ)}&max=10000`,
+					{ method: "GET" },
+				);
+				if (r.ok) {
+					const j = await r.json();
+					if (typeof j?.text === "string") {
+						setHistText(j.text);
+						setHistSource(j.source ?? "");
+					}
+				}
+			} catch {
+				// ignora erro de refresh
+			}
+		}, 3000);
+		return () => {
+			if (histRefreshRef.current) {
+				clearInterval(histRefreshRef.current);
+				histRefreshRef.current = null;
+			}
+		};
+	}, [histOpen, serverBase, tokQ, activeSession]);
+
 	const startLogCapture = useCallback(async () => {
 		setHistLoading(true);
 		setHistErr(null);
@@ -707,6 +817,7 @@ export function TerminalTTYDScreen() {
 			if (r.ok) {
 				const j = await r.json();
 				setHistText(typeof j?.text === "string" ? j.text : "");
+				setHistSource(j.source ?? "");
 				setHistErr(null);
 			}
 		} catch (e) {
@@ -1412,7 +1523,7 @@ export function TerminalTTYDScreen() {
   }, []);
 
   return (
-    <div data-term-ui className="flex h-full w-full flex-col bg-[#011627] font-mono text-emerald-400" style={themeStyle}>
+    <div data-term-ui onPaste={handlePasteInterceptor as any} className="flex h-full w-full flex-col bg-[#011627] font-mono text-emerald-400" style={themeStyle}>
       {/* PARTE 3 — header do redesign: logo + badge, zoom c/ reset, paleta */}
       <div
         data-testid="term-header"
@@ -2020,6 +2131,12 @@ export function TerminalTTYDScreen() {
                 </button>
               </div>
             </div>
+            {histText && !histLoading && !histErr && (histSource === "snapshots" || histSource === "") && (
+              <div className="shrink-0 border-b px-3 py-1.5 text-[10px]"
+                style={{ borderColor: "var(--hok-line)", background: "rgba(251,191,36,0.1)", color: "#f59e0b" }}>
+                ⚠ Histórico parcial — apenas tela visível capturada. Para histórico completo, inicie a sessão antes de conversar.
+              </div>
+            )}
             <div
               data-testid="term-history-text"
               ref={(el) => {

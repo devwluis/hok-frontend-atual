@@ -9,14 +9,12 @@ const ICON_SRCS = {
   terminal: "/icons/hok-terminal.png?v=2",
   n8n: "/icons/hok-n8n.png?v=2",
   settings: "/icons/hok-config.png?v=2",
-  preview: "/icons/hok-terminal.png?v=2",
 } as const;
 
 const ITEMS = [
   { id: "chat" as const, label: "Chat" },
   { id: "terminal" as const, label: "Terminal" },
   { id: "n8n" as const, label: "N8N" },
-  { id: "preview" as const, label: "Preview" },
   { id: "settings" as const, label: "Config" },
 ] as const;
 

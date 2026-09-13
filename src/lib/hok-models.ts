@@ -188,6 +188,9 @@ export const PAID_MODEL_ALLOWLIST: string[] = [
   // chat web usa OpenRouter como padrão; estes são opção nativa explícita.
   "deepseek-native/deepseek-flash",
   "deepseek-native/deepseek-v4-pro",
+  // 11/09: DeepSeek V4.1 Flash (OpenRouter) — pago, liberado por allowlist
+  // a pedido do usuário. Não incluir a variante opencode-go por enquanto.
+  "deepseek/deepseek-v4.1-flash",
 ];
 
 export async function getPaidModels(force = false): Promise<HokModel[]> {

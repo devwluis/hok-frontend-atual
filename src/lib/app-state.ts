@@ -2,7 +2,6 @@ export type ScreenId =
   | "chat"
   | "terminal"
   | "n8n"
-  | "preview"
   | "brain"
   | "models"
   | "settings"
@@ -16,7 +15,8 @@ export type ScreenId =
   | "files"
   | "codex"
   | "flow"
-  | "crm";
+  | "crm"
+  | "drive";
 
 type StoreState = {
   screen: ScreenId;

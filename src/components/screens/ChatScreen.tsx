@@ -385,8 +385,8 @@ function MessageBubble({
               </div>
             )}
             <div className="flex gap-2">
-              <button onClick={onApprovePending} className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-500 hover:bg-emerald-500/25">Aprovar</button>
-              <button onClick={onRejectPending} className="rounded-full bg-red-500/15 px-3 py-1 text-xs font-medium text-red-500 hover:bg-red-500/25">Rejeitar</button>
+              <button onClick={onApprovePending} className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-500 hover:bg-emerald-500/25">Sim</button>
+              <button onClick={onRejectPending} className="rounded-full bg-red-500/15 px-3 py-1 text-xs font-medium text-red-500 hover:bg-red-500/25">Nao</button>
             </div>
           </div>
         )}
@@ -438,6 +438,20 @@ function ModelCatalogList({ modelsList, search, activeModelId, onSelect }: {
   const groups: { header: string; badge?: string; badgeCls?: string; models: HokModel[] }[] = [];
   const paid = modelsList.paid.filter(match);
   if (SHOW_PAID_MODELS && paid.length) groups.push({ header: "PAGO", badge: "PAGO", badgeCls: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", models: paid });
+  // ALLOWLIST MÍNIMA DE PAGOS (08/09, item 6): com SHOW_PAID_MODELS=false,
+  // modelsList.paid já vem filtrado pela allowlist (getPaidModels) — agrupa
+  // por provider para expor o grupo "OpenRouter" com deepseek-v4-flash-0731.
+  if (!SHOW_PAID_MODELS && paid.length) {
+    const byProvider = new Map<string, HokModel[]>();
+    for (const m of paid) {
+      const arr = byProvider.get(m.provider) ?? [];
+      arr.push(m);
+      byProvider.set(m.provider, arr);
+    }
+    for (const [provider, models] of byProvider) {
+      groups.push({ header: provider, badge: "PAGO", badgeCls: "bg-[color:var(--amber)]/15 text-[color:var(--amber)]", models });
+    }
+  }
   const freeByProvider = new Map<string, HokModel[]>();
   for (const m of modelsList.free) {
     if (!match(m)) continue;
@@ -448,7 +462,9 @@ function ModelCatalogList({ modelsList, search, activeModelId, onSelect }: {
   for (const [provider, models] of freeByProvider) {
     groups.push({ header: provider, badge: "FREE", badgeCls: "bg-[color:var(--emerald)]/15 text-[color:var(--emerald)]", models });
   }
-  const zen = modelsList.zen.filter(match);
+  // Grupo ZEN: só modelos PAGOS do OpenCode Zen — os free já aparecem no
+  // grupo "OpenCode Zen FREE" acima (fix duplicação 08/09).
+  const zen = modelsList.zen.filter((m) => !m.free && match(m));
   if (zen.length) groups.push({ header: "OpenCode Zen", badge: "ZEN", badgeCls: "bg-[#a78bfa]/15 text-[#a78bfa]", models: zen });
   if (groups.length === 0) {
     return <div className="px-3 py-2 text-[10px] font-mono text-muted-foreground">Nenhum modelo encontrado.</div>;
@@ -610,6 +626,7 @@ export function ChatScreen() {
   const n8nActive = n8nMode !== "off";
 
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef("");
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const skipAutoScrollRef = useRef(false);
@@ -998,6 +1015,22 @@ export function ChatScreen() {
     ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
   }, [input]);
 
+  // FIX Bug 3 v5: sync DOM → state p/ IME mobile (MIUI)
+  // Captura texto inserido pelo IME sem disparar onChange do React
+  useEffect(() => { inputRef.current = input; }, [input]);
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const onDomInput = () => {
+      const val = ta.value;
+      if (val !== inputRef.current) {
+        setInput(val);
+      }
+    };
+    ta.addEventListener("input", onDomInput);
+    return () => ta.removeEventListener("input", onDomInput);
+  }, []);
+
   const persist = (next: Msg[], idOverride?: string) => {
     const id = idOverride ?? conversationId;
     if (!id) return;
@@ -1036,7 +1069,7 @@ export function ChatScreen() {
       if (token) headers["X-Hok-Token"] = token;
       if (conversationId) headers["X-Conversation-Id"] = conversationId;
       const res = await fetch(baseUrl.replace(/\/$/, "") + path, { method: "POST", headers });
-      const data = (await res.json().catch(() => ({}))) as { reply?: string; status?: string };
+      const data = (await res.json().catch(() => ({}))) as { reply?: string; status?: string; pendingAction?: PendingAction | null };
       if (!res.ok || data.status === "unauthorized") {
         setError(`Falha ao processar a ação pendente (HTTP ${res.status}${data.status ? `: ${data.status}` : ""}).`);
         return;
@@ -1045,6 +1078,7 @@ export function ChatScreen() {
         id: crypto.randomUUID(),
         role: "assistant",
         text: data.reply || (approve ? "Ação aprovada." : "Ação rejeitada."),
+        pendingAction: data.pendingAction ?? undefined,
       };
       setMessages((prev) => {
         const cleared = prev.map((m) => (m.pendingAction ? { ...m, pendingAction: null } : m));
@@ -1052,10 +1086,17 @@ export function ChatScreen() {
         persist(next);
         return next;
       });
+      // Se há próximo pendingAction (mutação sequencial), manter state para botões
+      if (data.pendingAction) {
+        pendingActionRef.current = data.pendingAction;
+      }
     } catch {
       setError("Falha ao processar a ação pendente (erro de rede).");
     } finally {
-      setPendingAction(null);
+      // Só limpar pendingAction se não há novo pendingAction na resposta
+      if (!pendingActionRef.current) {
+        setPendingAction(null);
+      }
     }
   };
 
@@ -1750,6 +1791,7 @@ export function ChatScreen() {
             ref={taRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+
             placeholder="Insira sua instrução, Sr.…"
             rows={1}
             className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"

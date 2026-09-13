@@ -6,6 +6,7 @@ import {
   MessageSquare, Terminal, Workflow, Brain, Settings,
   Bot, FolderOpen, BarChart3, Database, BookOpen, GitBranch,
   Rocket, FileCode, Cpu, FolderPlus, MessagesSquare, Building2,
+  Cloud,
 } from "lucide-react";
 import { useAppState } from "@/hooks/use-app-state";
 import { conversationsStore } from "@/lib/conversations-store";
@@ -38,7 +39,8 @@ const APPS: AppDef[] = [
   { id: "files",    label: "Arquivos",  sub: "FS",        Icon: FolderOpen,    from: "#fbbf24", to: "#d97706" },
   { id: "codex",    label: "Codex",     sub: "Docs",      Icon: BookOpen,      from: "#ef4444", to: "#b91c1c" },
   { id: "flow",     label: "Flow",      sub: "Visual",    Icon: FileCode,      from: "#14b8a6", to: "#0f766e" },
-  { id: "crm",      label: "CRM",       sub: "Leads",     Icon: Building2,     from: "#f5a623", to: "#c47b00" },
+  { id: "crm",     label: "CRM",       sub: "Leads",     Icon: Building2,    from: "#f5a623", to: "#c47b00" },
+  { id: "drive",    label: "Drive",     sub: "Cloud",     Icon: Cloud,         from: "#4285f4", to: "#1a73e8" },
   { id: "settings", label: "Config",    sub: "Setup",     Icon: Settings,      from: "#64748b", to: "#334155" },
 ];
 

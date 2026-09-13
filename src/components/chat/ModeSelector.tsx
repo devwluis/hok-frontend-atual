@@ -1,18 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { Bot, Compass, Flame, Hammer, RotateCcw, ShieldCheck } from "lucide-react";
+import { Compass, Flame, Hammer, RotateCcw, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ─── ModeSelector (29/08) ───────────────────────────────────────────────────
-// 4 modos de sessão (Planejar/Construir/Autônomo/Autônomo Total) + badge do
+// 3 modos de sessão (Planejar/Construir/Autônomo Total) + badge do
 // checkpoint + rollback manual + toggle auto_rollback. O estado real vem de
 // GET /session/mode (a tabela é a fonte); cada clique faz POST /session/mode.
 
-type SessionMode = "plan" | "build" | "autonomous" | "autonomous_total";
+type SessionMode = "plan" | "build" | "autonomous_total";
 
 const MODES: { id: SessionMode; label: string; icon: typeof Compass; cls: string }[] = [
   { id: "plan", label: "Planejar", icon: Compass, cls: "text-sky-400" },
   { id: "build", label: "Construir", icon: Hammer, cls: "text-emerald-400" },
-  { id: "autonomous", label: "Autônomo", icon: Bot, cls: "text-violet-400" },
   { id: "autonomous_total", label: "Autônomo Total", icon: Flame, cls: "text-[color:var(--amber)]" },
 ];
 
@@ -92,7 +91,7 @@ export default function ModeSelector({ conversationId }: { conversationId: strin
     setErr(null);
     try {
       const body: Record<string, unknown> = { mode };
-      if (mode === "autonomous" || mode === "autonomous_total") {
+      if (mode === "autonomous_total") {
         const b = parseBudget();
         if (b !== null) body.autonomous_budget = b;
       }
@@ -119,7 +118,7 @@ export default function ModeSelector({ conversationId }: { conversationId: strin
   };
 
   const applyBudget = async () => {
-    if (!st.mode || (st.mode !== "autonomous" && st.mode !== "autonomous_total")) return;
+    if (!st.mode || st.mode !== "autonomous_total") return;
     setBusy(true);
     setErr(null);
     try {
@@ -205,7 +204,7 @@ export default function ModeSelector({ conversationId }: { conversationId: strin
           )}
         </>
       )}
-      {(st.mode === "autonomous" || st.mode === "autonomous_total") && (
+      {st.mode === "autonomous_total" && (
         <>
           <label className="flex items-center gap-1 text-[10px] text-muted-foreground" data-testid="budget-input-wrap">
             Budget:

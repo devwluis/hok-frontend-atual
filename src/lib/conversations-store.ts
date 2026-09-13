@@ -146,6 +146,10 @@ export async function hydrateFromServer(): Promise<void> {
     }
     save(Array.from(merged.values()));
 
+    if (local.length === 0 && remote.length > 0) {
+      console.info(`[hokma] hidratação de conversas vindas do servidor (${remote.length} conversas) — localStorage estava vazio`);
+    }
+
     // tenta reprocessar deletes pendentes (ex: estava offline)
     for (const id of tombstones) {
       const stillOnServer = remote.some((r) => r.id === id);

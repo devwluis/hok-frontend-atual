@@ -1,13 +1,21 @@
 "use client";
+import { useEffect } from "react";
 import { useState } from "react";
 import { Lock, Loader2 } from "lucide-react";
 import { useOwnerAuth } from "@/hooks/use-owner-auth";
+import { hydrateFromServer } from "@/lib/conversations-store";
 
 export function OwnerGate({ children, label = "Área restrita" }: { children: React.ReactNode; label?: string }) {
   const { isOwner, login } = useOwnerAuth();
   const [password, setPassword] = useState("");
   const [checking, setChecking] = useState(false);
   const [wrong, setWrong] = useState(false);
+
+  useEffect(() => {
+    if (isOwner) {
+      hydrateFromServer();
+    }
+  }, [isOwner]);
 
   if (isOwner) return <>{children}</>;
 
