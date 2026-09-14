@@ -3,7 +3,9 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { Plus, Minus, X, Command, MoreHorizontal, Copy, Square, ClipboardCopy, ClipboardPaste, RotateCcw } from "lucide-react";
+import { Plus, Minus, X, Command, MoreHorizontal, Copy, Square, ClipboardCopy, ClipboardPaste, RotateCcw, Search, Monitor } from "lucide-react";
+import { SavedSessionsPanel } from "./SavedSessionsPanel";
+import { HistorySearch } from "./HistorySearch";
 import { cn } from "@/lib/utils";
 import { SHELL_Z, aboveDock, keysReservePx, keyboardShiftPx, DOCK_CLEAR_PX } from "@/lib/shell-layers";
 import { BUILD_ID } from "@/lib/build-info";
@@ -19,7 +21,7 @@ function KeyButton({
   return (
     <button
       type="button" aria-pressed={active} onClick={onClick} data-testid={testid}
-      className={`flex h-9 shrink-0 select-none items-center justify-center rounded-md border px-3 text-[11px] font-semibold tracking-[0.01em] transition-transform duration-150 active:scale-[0.96] ${wide ? "min-w-[82px]" : "min-w-[42px]"}`}
+      className={`flex h-9 shrink-0 select-none items-center justify-center rounded-lg border px-3 text-[11px] font-semibold tracking-[0.01em] transition-transform duration-150 active:scale-[0.96] ${wide ? "min-w-[82px]" : "min-w-[42px]"}`}
       style={{
         color: active ? "var(--hok-bg)" : "var(--hok-ink)",
         background: active ? "var(--hok-accent)" : "var(--hok-key)",
@@ -92,6 +94,8 @@ export function TerminalXtermScreen() {
   const [pasteDraft, setPasteDraft] = useState("");
   const [histOpen, setHistOpen] = useState(false);
   const [histText, setHistText] = useState("");
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [selMode, setSelMode] = useState(false);
   const [gestureActive, setGestureActive] = useState(false);
   const gestureRef = useRef({ y: 0, active: false, moved: false });
@@ -270,7 +274,10 @@ export function TerminalXtermScreen() {
 
     const terminal = new Terminal({
       fontSize: 13,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      theme: {
+        background: "#0d1117", foreground: "#c9d1d9", cursor: "#58a6ff", selectionBackground: "#264f78",
+      },
       cursorBlink: true,
       scrollback: 10000,
     });
@@ -572,6 +579,12 @@ export function TerminalXtermScreen() {
           <button type="button" data-testid="term-history" onClick={() => void openHistory()} className="flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold" style={{ color: "var(--hok-accent)", borderColor: "var(--hok-accent-soft)" }}>
             <MoreHorizontal size={11} /> Histórico
           </button>
+          <button type="button" onClick={() => { setSavedOpen(true); }} title="Sessões salvas" data-testid="term-sessions" className="flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold" style={{ color: "var(--hok-accent)", borderColor: "var(--hok-accent-soft)" }}>
+            <Monitor size={11} /> Sessões
+          </button>
+          <button type="button" onClick={() => { setSearchOpen(true); }} title="Buscar no histórico" data-testid="term-search" className="flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold" style={{ color: "var(--hok-accent)", borderColor: "var(--hok-accent-soft)" }}>
+            <Search size={11} /> Buscar
+          </button>
           <button type="button" onClick={() => setRecovering(true)} title="Reconectar" data-testid="term-reconnect" className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: "var(--hok-terminal-muted)" }}>
             <RotateCcw size={13} />
           </button>
@@ -582,20 +595,22 @@ export function TerminalXtermScreen() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex items-center gap-1 border-b border-emerald-900/40 px-2 py-1.5" data-testid="term-tabbar">
+      <div className="flex items-center gap-0.5 border-b border-emerald-900/30 px-2 pt-1.5" data-testid="term-tabbar"
+        style={{ transition: "border-color 150ms ease-in-out" }}>
         {termApi.tabs.map((tab, i) => {
           const isCtx = ctxTabId === tab.id;
           const label = tab.note || (i === 0 ? "main" : String(i));
           return (
-            <div key={tab.id} className="flex items-center relative">
+            <div key={tab.id} className="flex items-center relative" style={{ transition: "all 150ms ease-in-out" }}>
               <button type="button" onClick={() => termApi.setActiveTab(tab.id)} data-testid={`term-tab-${i + 1}`}
-                className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] transition-colors ${tab.id === termApi.activeTabId ? "border-emerald-400 bg-emerald-400/15 text-emerald-200" : "border-emerald-900/40 text-emerald-300/60 hover:bg-emerald-500/10"}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${tab.conn === "live" ? "bg-emerald-400" : tab.conn === "connecting" ? "bg-amber-400" : "bg-red-400"}`} />
+                onDoubleClick={() => { setRenameTabId(tab.id); setRenameVal(tab.note || label); }}
+                className={`group flex items-center gap-1 px-2 py-1 text-[11px] transition-all duration-150 ease-in-out rounded-t-md ${tab.id === termApi.activeTabId ? "text-emerald-200 border-b-2 border-emerald-400" : "text-emerald-300/50 hover:text-emerald-300/80 border-b-2 border-transparent hover:border-emerald-900/50"}`}>
+                <span className={`h-1 w-1 rounded-full ${tab.conn === "live" ? "bg-emerald-400" : tab.conn === "connecting" ? "bg-amber-400" : "bg-red-400"}`} />
                 {label}
               </button>
               <button type="button" onClick={(e) => { e.stopPropagation(); setCtxTabId(isCtx ? null : tab.id); setRenameTabId(null); }}
                 data-testid={`term-tab-ctx-${i + 1}`}
-                className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-[10px] text-emerald-300/40 hover:text-emerald-300 hover:bg-emerald-500/10"
+                className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-[10px] text-emerald-300/40 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors duration-150"
                 aria-label={`Opções da sessão ${label}`}>
                 <MoreHorizontal size={12} />
               </button>
@@ -618,13 +633,13 @@ export function TerminalXtermScreen() {
               )}
               {termApi.tabs.length > 1 && (
                 <button type="button" onClick={() => termApi.removeTab(tab.id)} data-testid={`term-tab-close-${i + 1}`}
-                  className="-ml-1 rounded-full p-0.5 text-[10px] text-emerald-300/50 hover:text-red-300" aria-label={`Fechar sessão ${i + 1}`}>✕</button>
+                  className="-ml-1 rounded-full p-0.5 text-[10px] text-emerald-300/50 hover:text-red-300 transition-colors duration-150" aria-label={`Fechar sessão ${i + 1}`}>✕</button>
               )}
             </div>
           );
         })}
         <button type="button" onClick={() => termApi.addTab()} data-testid="term-tab-add"
-          className="ml-auto rounded-lg border border-emerald-900/50 px-2 py-1 text-[12px] text-emerald-300 hover:bg-emerald-500/10" title="Nova sessão">+</button>
+          className="ml-1 rounded-lg border border-emerald-900/50 px-2 py-1 text-[12px] text-emerald-300 hover:bg-emerald-500/10 transition-colors duration-150" title="Nova sessão">+</button>
       </div>
 
       {/* Terminal area — container único com display switching */}
@@ -679,6 +694,15 @@ export function TerminalXtermScreen() {
             </div>
           </div>
         )}
+        {savedOpen && (
+          <SavedSessionsPanel onClose={() => setSavedOpen(false)} />
+        )}
+        {searchOpen && (
+          <HistorySearch
+            terminal={multiTermRef.current.get(tidRef.current)?.terminal ?? null}
+            onClose={() => setSearchOpen(false)}
+          />
+        )}
       </div>
 
       {/* Keyboard bar */}
@@ -705,7 +729,7 @@ export function TerminalXtermScreen() {
                 );
               })}
               <button type="button" data-testid="ov-attach" onClick={() => document.querySelector<HTMLInputElement>('input[data-testid="ov-attach-input"]')?.click()}
-                className="flex h-9 shrink-0 select-none items-center justify-center rounded-md border px-3 text-[11px] font-semibold transition-transform duration-150 active:scale-[0.96]"
+                className="flex h-9 shrink-0 select-none items-center justify-center rounded-lg border px-3 text-[11px] font-semibold transition-transform duration-150 active:scale-[0.96]"
                 style={{ color: "var(--hok-ink)", background: "var(--hok-key)", borderColor: "var(--hok-line)", boxShadow: "0 2px 0 color-mix(in srgb, var(--hok-line) 65%, #000)" }}>Anexar</button>
               <input type="file" accept="image/*" data-testid="ov-attach-input" onChange={handleAttachFile} className="hidden" />
             </div>

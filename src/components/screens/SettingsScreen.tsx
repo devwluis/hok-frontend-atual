@@ -40,13 +40,13 @@ export const TERMINAL_THEMES: Record<string, { name: string; colors: string[]; t
   },
   termius: {
     name: "Termius-like",
-    colors: ["#011627", "#d6deeb", "#ffcb8b", "#ef5350"],
+    colors: ["#0d1117", "#c9d1d9", "#58a6ff", "#264f78"],
     theme: {
-      background: "#011627", foreground: "#d6deeb", cursor: "#ffcb8b", cursorAccent: "#011627",
-      selectionBackground: "#1d3b53", black: "#011627", red: "#ef5350", green: "#ecc48d", yellow: "#ffeb95",
-      blue: "#82aaff", magenta: "#c792ea", cyan: "#7fdbca", white: "#d6deeb",
-      brightBlack: "#5f7e97", brightRed: "#ff5370", brightGreen: "#addb67", brightYellow: "#ffcb8b",
-      brightBlue: "#82aaff", brightMagenta: "#c792ea", brightCyan: "#7fdbca", brightWhite: "#ffffff",
+      background: "#0d1117", foreground: "#c9d1d9", cursor: "#58a6ff", cursorAccent: "#0d1117",
+      selectionBackground: "#264f78", black: "#0d1117", red: "#f85149", green: "#3fb950", yellow: "#d29922",
+      blue: "#58a6ff", magenta: "#bc8cff", cyan: "#39c5cf", white: "#c9d1d9",
+      brightBlack: "#6e7681", brightRed: "#ff6e6a", brightGreen: "#56d364", brightYellow: "#e3b341",
+      brightBlue: "#79c0ff", brightMagenta: "#d2a8ff", brightCyan: "#56d4dd", brightWhite: "#f0f6fc",
     },
   },
   highcontrast: {
