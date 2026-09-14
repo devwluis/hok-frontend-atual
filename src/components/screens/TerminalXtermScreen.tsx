@@ -100,7 +100,12 @@ export function TerminalXtermScreen() {
   const [selMode, setSelMode] = useState(false);
   const [gestureActive, setGestureActive] = useState(false);
   const gestureRef = useRef({ y: 0, active: false, moved: false });
-  const [coarse] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && (window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 768));
+  useEffect(() => {
+    const onResize = () => setIsMobile(typeof window !== "undefined" && (window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 768));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const [ctxTabId, setCtxTabId] = useState<string | null>(null);
   const [renameTabId, setRenameTabId] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState("");
@@ -134,8 +139,12 @@ export function TerminalXtermScreen() {
 
   /* ── Dynamic terminal height (visualViewport aware) ── */
   const recalcTerminal = useCallback(() => {
-    const vv = window.visualViewport;
     const area = terminalAreaRef.current;
+    if (!isMobile) {
+      if (area) area.style.height = "";
+      return;
+    }
+    const vv = window.visualViewport;
     if (!vv || !area) return;
     const rect = area.getBoundingClientRect();
     const topOffset = rect.top - (vv.offsetTop || 0);
@@ -144,10 +153,10 @@ export function TerminalXtermScreen() {
     multiTermRef.current.forEach((entry) => {
       try { entry.fitAddon.fit(); } catch { /* noop */ }
     });
-  }, []);
+  }, [isMobile]);
 
   /* ── Recalculate when keyboard inset or keys bar changes ── */
-  useEffect(() => { recalcTerminal(); }, [kbInsetSettled, keysExpanded, recalcTerminal]);
+  useEffect(() => { if (isMobile) recalcTerminal(); }, [kbInsetSettled, keysExpanded, recalcTerminal]);
 
   /* ── Sticky modifiers ── */
   const clearSticky = useCallback(() => { setCtrlSticky(false); setAltSticky(false); }, []);
@@ -167,6 +176,7 @@ export function TerminalXtermScreen() {
   }, [ctrlSticky, altSticky, clearSticky]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleKeysBar = useCallback(() => {
+    if (!isMobile) return;
     setKeysExpanded((v) => {
       const nv = !v;
       try { localStorage.setItem("hokma.terminal.keysbar.v1", nv ? "expanded" : "min"); } catch {}
@@ -175,9 +185,10 @@ export function TerminalXtermScreen() {
     });
   }, [focusInput]);
 
-  /* ── Keyboard inset ── */
+  /* ── Keyboard inset (mobile only) ── */
   useEffect(() => () => { if (kbSettleTimer.current) clearTimeout(kbSettleTimer.current); }, []);
   useEffect(() => {
+    if (!isMobile) return;
     const vv = window.visualViewport;
     if (!vv) return;
     const onVV = () => {
@@ -194,6 +205,9 @@ export function TerminalXtermScreen() {
     onVV();
     return () => { vv.removeEventListener("resize", onVV); vv.removeEventListener("scroll", onVV); };
   }, [recalcTerminal]);
+
+  /* ── Force keys bar closed on desktop ── */
+  useEffect(() => { if (!isMobile && keysExpanded) setKeysExpanded(false); }, [isMobile]);
 
   /* ── Bar height ── */
   useEffect(() => {
@@ -678,7 +692,7 @@ export function TerminalXtermScreen() {
         )}
         {/* Host: os containers de cada aba são appended aqui via getOrCreateTerm */}
         <div ref={activeContainerRef} data-testid="term-host" className="h-full w-full" style={{ position: "relative" }} />
-        {coarse && (
+        {isMobile && (
           <div data-testid="term-gesture" aria-hidden="true"
             className={cn("absolute inset-0 touch-none transition-opacity duration-150", gestureActive ? "opacity-100" : "opacity-0")}
             style={{ zIndex: SHELL_Z.terminalScrollbar - 1, pointerEvents: gestureActive ? "auto" : "none" }}
@@ -726,7 +740,8 @@ export function TerminalXtermScreen() {
         )}
       </div>
 
-      {/* Keyboard bar */}
+      {/* Keyboard bar — visible only on mobile/touch */}
+      <div className={isMobile ? "" : "hidden"} data-testid="ov-bar-container">
       {!keysExpanded ? (
         <div className="absolute left-0 right-0 flex justify-end px-2 transition-[bottom] duration-150" style={{ zIndex: SHELL_Z.keysBarMinimized, bottom: kbInsetSettled > 0 ? kbInsetSettled + 24 : DOCK_CLEAR_PX }}>
           <button type="button" data-testid="ov-toggle" onClick={toggleKeysBar} title="Maximizar" className="relative flex h-12 w-12 select-none items-center justify-center rounded-2xl border shadow-[0_10px_32px_rgba(0,0,0,.28)] transition-transform duration-200 hover:-translate-y-0.5 active:scale-95" style={{ background: "var(--hok-panel)", borderColor: "var(--hok-accent)", color: "var(--hok-accent)" }}>
@@ -784,10 +799,11 @@ export function TerminalXtermScreen() {
                   <KeyButton key={xk.label} label={xk.label} wide testid={`ov-ctrl-${xk.tid}`} onClick={() => sendKey(xk.label, xk.esc)} />
                 ))}
               </div>
-            </div>
-          )}
+          </div>
+        )}
         </div>
       )}
+      </div>
 
       {/* Toast */}
       {toast && (
