@@ -100,6 +100,7 @@ const RECENT_MAX_CHARS = 100_000;
 
 export function TerminalProvider({ children }: { children: ReactNode }) {
   const sessionsRef = useRef<Map<string, TabSession>>(new Map());
+  const lastWriteAt = useRef<Map<string, number>>(new Map());
   const initialTabsRef = useRef(readTabs());
   const [tabs, setTabs] = useState<TerminalTab[]>(() =>
     initialTabsRef.current.tabs.map((t) => ({ id: t.id, serverSessionId: t.sid, conn: "idle" as Conn, note: "" })),
@@ -411,6 +412,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const write = useCallback((tabId: string, data: string) => {
+    if (!data) return;
+    const now = Date.now();
+    const prev = lastWriteAt.current.get(tabId) ?? 0;
+    if (now - prev < 8) return;
+    lastWriteAt.current.set(tabId, now);
     const s = sessionsRef.current.get(tabId);
     if (!s) return;
     if (s.transport === "sse") {
