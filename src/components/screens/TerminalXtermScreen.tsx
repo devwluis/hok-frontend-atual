@@ -186,7 +186,10 @@ export function TerminalXtermScreen() {
   }, [focusInput]);
 
   /* ── Keyboard inset (mobile only) ── */
-  useEffect(() => () => { if (kbSettleTimer.current) clearTimeout(kbSettleTimer.current); }, []);
+  useEffect(() => () => {
+    if (kbSettleTimer.current) clearTimeout(kbSettleTimer.current);
+    if (focusDebounceRef.current) clearTimeout(focusDebounceRef.current);
+  }, []);
   useEffect(() => {
     if (!isMobile) return;
     const vv = window.visualViewport;
@@ -486,17 +489,23 @@ export function TerminalXtermScreen() {
   const selectionCancel = useCallback(() => { setSelMode(false); try { multiTermRef.current.get(tidRef.current)?.terminal.clearSelection(); } catch {} }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Touch gesture ── */
+  const gestureAccRef = useRef(0);
+  const gestureT0Ref = useRef(0);
+  const focusDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     if (e.touches.length !== 1) return;
     gestureRef.current = { y: e.touches[0].clientY, active: true, moved: false };
+    gestureAccRef.current = 0;
+    gestureT0Ref.current = Date.now();
     setGestureActive(true);
   }, []);
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     const g = gestureRef.current;
     if (!g.active || e.touches.length !== 1) return;
     const dy = e.touches[0].clientY - g.y;
+    gestureAccRef.current += Math.abs(dy);
+    if (gestureAccRef.current >= 15) g.moved = true;
     if (Math.abs(dy) < 10) return;
-    g.moved = true;
     g.y = e.touches[0].clientY;
     const entry = multiTermRef.current.get(tidRef.current);
     if (!entry) return;
@@ -509,9 +518,12 @@ export function TerminalXtermScreen() {
     if (!g.active) return;
     g.active = false;
     setGestureActive(false);
-    if (!g.moved) {
-      try { multiTermRef.current.get(tidRef.current)?.terminal.scrollToBottom(); } catch {}
-      try { multiTermRef.current.get(tidRef.current)?.terminal.textarea?.focus(); } catch {}
+    if (!g.moved && (Date.now() - gestureT0Ref.current < 300)) {
+      if (focusDebounceRef.current) clearTimeout(focusDebounceRef.current);
+      focusDebounceRef.current = setTimeout(() => {
+        try { multiTermRef.current.get(tidRef.current)?.terminal.scrollToBottom(); } catch {}
+        try { multiTermRef.current.get(tidRef.current)?.terminal.textarea?.focus(); } catch {}
+      }, 100);
       return;
     }
     e.preventDefault();
