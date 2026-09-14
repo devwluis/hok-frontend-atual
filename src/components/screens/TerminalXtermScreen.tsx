@@ -761,14 +761,14 @@ export function TerminalXtermScreen() {
       {/* Keyboard bar — visible only on mobile/touch */}
       <div className={isMobile ? "" : "hidden"} data-testid="ov-bar-container">
       {!keysExpanded ? (
-        <div className="absolute left-0 right-0 flex justify-end px-2" style={{ zIndex: SHELL_Z.keysBarMinimized, bottom: kbInset > 0 ? kbInset + 24 : DOCK_CLEAR_PX }}>
+        <div className="fixed left-0 right-0 flex justify-end px-2" style={{ zIndex: SHELL_Z.keysBarMinimized, bottom: kbInset > 0 ? kbInset + 24 : DOCK_CLEAR_PX }}>
           <button type="button" data-testid="ov-toggle" onClick={toggleKeysBar} title="Maximizar" className="relative flex h-12 w-12 select-none items-center justify-center rounded-2xl border shadow-[0_10px_32px_rgba(0,0,0,.28)] transition-transform duration-200 hover:-translate-y-0.5 active:scale-95" style={{ background: "var(--hok-panel)", borderColor: "var(--hok-accent)", color: "var(--hok-accent)" }}>
             <Plus className="h-5 w-5" strokeWidth={1.8} />
             <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2" style={{ background: "var(--hok-tmux)", borderColor: "var(--hok-bg)" }} />
           </button>
         </div>
       ) : (
-        <div ref={barRef} data-testid="ov-bar" className="absolute left-0 right-0 rounded-t-xl border border-b-0 px-2 pb-2 pt-2" style={{ zIndex: SHELL_Z.keysBarExpanded, bottom: aboveDock(kbInset), background: "color-mix(in srgb, var(--hok-panel) 96%, transparent)", borderColor: "var(--hok-line)", boxShadow: "0 -8px 30px rgba(0,0,0,.16)", backdropFilter: "blur(12px)" }}>
+        <div ref={barRef} data-testid="ov-bar" className="fixed left-0 right-0 rounded-t-xl border border-b-0 px-2 pb-2 pt-2" style={{ zIndex: SHELL_Z.keysBarExpanded, bottom: aboveDock(kbInset), background: "color-mix(in srgb, var(--hok-panel) 96%, transparent)", borderColor: "var(--hok-line)", boxShadow: "0 -8px 30px rgba(0,0,0,.16)", backdropFilter: "blur(12px)" }}>
           <div className="flex items-center gap-1.5">
             <div className="thin-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
               <button type="button" data-testid="ov-collapse" onClick={toggleKeysBar} title="Minimizar" className="flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-md border transition-colors hover:bg-white/10" style={{ borderColor: "var(--hok-line)", color: "var(--hok-muted)" }}>
