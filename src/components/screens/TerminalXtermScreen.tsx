@@ -79,9 +79,9 @@ export function TerminalXtermScreen() {
   const [recovering, setRecovering] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [toast, setToast] = useState("");
-  const [kbInset, setKbInset] = useState(0);
   const [kbInsetSettled, setKbInsetSettled] = useState(0);
   const kbSettleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const barMinimizedRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
   const terminalAreaRef = useRef<HTMLDivElement>(null);
   const [barH, setBarH] = useState(0);
@@ -185,18 +185,29 @@ export function TerminalXtermScreen() {
     });
   }, [focusInput]);
 
-  /* ── Keyboard inset (mobile only) ── */
-  useEffect(() => () => {
-    if (kbSettleTimer.current) clearTimeout(kbSettleTimer.current);
-    if (focusDebounceRef.current) clearTimeout(focusDebounceRef.current);
-  }, []);
+  /* ── Keyboard inset (mobile only) — direct DOM bar positioning via rAF ── */
   useEffect(() => {
     if (!isMobile) return;
     const vv = window.visualViewport;
     if (!vv) return;
+    let pendingBarUpdate = false;
+    const updateBar = (inset: number) => {
+      if (pendingBarUpdate) return;
+      pendingBarUpdate = true;
+      requestAnimationFrame(() => {
+        pendingBarUpdate = false;
+        const lift = Math.max(0, inset);
+        if (barMinimizedRef.current) {
+          barMinimizedRef.current.style.bottom = `${lift > 0 ? lift + 24 : DOCK_CLEAR_PX}px`;
+        }
+        if (barRef.current) {
+          barRef.current.style.bottom = `${aboveDock(lift)}px`;
+        }
+      });
+    };
     const onVV = () => {
       const inset = Math.max(0, Math.round(window.innerHeight - vv.height - (vv.offsetTop || 0)));
-      setKbInset(inset);
+      updateBar(inset);
       if (kbSettleTimer.current) clearTimeout(kbSettleTimer.current);
       kbSettleTimer.current = setTimeout(() => {
         setKbInsetSettled(inset);
@@ -206,7 +217,7 @@ export function TerminalXtermScreen() {
     vv.addEventListener("resize", onVV);
     vv.addEventListener("scroll", onVV);
     onVV();
-    return () => { vv.removeEventListener("resize", onVV); vv.removeEventListener("scroll", onVV); };
+    return () => { vv.removeEventListener("resize", onVV); vv.removeEventListener("scroll", onVV); if (kbSettleTimer.current) clearTimeout(kbSettleTimer.current); if (focusDebounceRef.current) clearTimeout(focusDebounceRef.current); };
   }, [recalcTerminal]);
 
   /* ── Force keys bar closed on desktop ── */
@@ -761,14 +772,14 @@ export function TerminalXtermScreen() {
       {/* Keyboard bar — visible only on mobile/touch */}
       <div className={isMobile ? "" : "hidden"} data-testid="ov-bar-container">
       {!keysExpanded ? (
-        <div className="fixed left-0 right-0 flex justify-end px-2" style={{ zIndex: SHELL_Z.keysBarMinimized, bottom: kbInset > 0 ? kbInset + 24 : DOCK_CLEAR_PX }}>
+        <div ref={barMinimizedRef} data-testid="ov-bar-minimized" className="fixed left-0 right-0 flex justify-end px-2" style={{ zIndex: SHELL_Z.keysBarMinimized, bottom: DOCK_CLEAR_PX }}>
           <button type="button" data-testid="ov-toggle" onClick={toggleKeysBar} title="Maximizar" className="relative flex h-12 w-12 select-none items-center justify-center rounded-2xl border shadow-[0_10px_32px_rgba(0,0,0,.28)] transition-transform duration-200 hover:-translate-y-0.5 active:scale-95" style={{ background: "var(--hok-panel)", borderColor: "var(--hok-accent)", color: "var(--hok-accent)" }}>
             <Plus className="h-5 w-5" strokeWidth={1.8} />
             <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2" style={{ background: "var(--hok-tmux)", borderColor: "var(--hok-bg)" }} />
           </button>
         </div>
       ) : (
-        <div ref={barRef} data-testid="ov-bar" className="fixed left-0 right-0 rounded-t-xl border border-b-0 px-2 pb-2 pt-2" style={{ zIndex: SHELL_Z.keysBarExpanded, bottom: aboveDock(kbInset), background: "color-mix(in srgb, var(--hok-panel) 96%, transparent)", borderColor: "var(--hok-line)", boxShadow: "0 -8px 30px rgba(0,0,0,.16)", backdropFilter: "blur(12px)" }}>
+        <div ref={barRef} data-testid="ov-bar" className="fixed left-0 right-0 rounded-t-xl border border-b-0 px-2 pb-2 pt-2" style={{ zIndex: SHELL_Z.keysBarExpanded, bottom: DOCK_CLEAR_PX, background: "color-mix(in srgb, var(--hok-panel) 96%, transparent)", borderColor: "var(--hok-line)", boxShadow: "0 -8px 30px rgba(0,0,0,.16)", backdropFilter: "blur(12px)" }}>
           <div className="flex items-center gap-1.5">
             <div className="thin-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto" style={{ WebkitOverflowScrolling: "touch" }}>
               <button type="button" data-testid="ov-collapse" onClick={toggleKeysBar} title="Minimizar" className="flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-md border transition-colors hover:bg-white/10" style={{ borderColor: "var(--hok-line)", color: "var(--hok-muted)" }}>
