@@ -368,6 +368,7 @@ export function TerminalXtermScreen() {
           if (dims && dims.cols > 0 && dims.rows > 0) {
             termApi.sendResize(tidRef.current, dims.cols, dims.rows);
           }
+          entry.terminal.refresh(0, entry.terminal.rows - 1);
         } catch { /* noop */ }
       }, 150);
     });
@@ -388,6 +389,7 @@ export function TerminalXtermScreen() {
     multiTermRef.current.forEach((entry, tabId) => {
       if (tabId === tid) {
         entry.container.style.display = "block";
+        try { entry.terminal.refresh(0, entry.terminal.rows - 1); } catch { /* noop */ }
       } else {
         entry.container.style.display = "none";
       }
@@ -507,7 +509,11 @@ export function TerminalXtermScreen() {
     if (!g.active) return;
     g.active = false;
     setGestureActive(false);
-    if (!g.moved) try { multiTermRef.current.get(tidRef.current)?.terminal.scrollToBottom(); } catch {}
+    if (!g.moved) {
+      try { multiTermRef.current.get(tidRef.current)?.terminal.scrollToBottom(); } catch {}
+      try { multiTermRef.current.get(tidRef.current)?.terminal.textarea?.focus(); } catch {}
+      return;
+    }
     e.preventDefault();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -694,8 +700,8 @@ export function TerminalXtermScreen() {
         <div ref={activeContainerRef} data-testid="term-host" className="h-full w-full" style={{ position: "relative" }} />
         {isMobile && (
           <div data-testid="term-gesture" aria-hidden="true"
-            className={cn("absolute inset-0 touch-none transition-opacity duration-150", gestureActive ? "opacity-100" : "opacity-0")}
-            style={{ zIndex: SHELL_Z.terminalScrollbar - 1, pointerEvents: gestureActive ? "auto" : "none" }}
+            className={cn("absolute inset-0 touch-pan-y transition-opacity duration-150", gestureActive ? "opacity-100" : "opacity-0")}
+            style={{ zIndex: SHELL_Z.terminalScrollbar - 1, pointerEvents: "auto", touchAction: "pan-y" }}
             onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd} />
         )}
         {pasteOpen && (
