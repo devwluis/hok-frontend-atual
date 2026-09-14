@@ -83,6 +83,7 @@ export function TerminalXtermScreen() {
   const [kbInsetSettled, setKbInsetSettled] = useState(0);
   const kbSettleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const barRef = useRef<HTMLDivElement | null>(null);
+  const terminalAreaRef = useRef<HTMLDivElement>(null);
   const [barH, setBarH] = useState(0);
   const [keysExpanded, setKeysExpanded] = useState(() => {
     try { return localStorage.getItem("hokma.terminal.keysbar.v1") === "expanded"; } catch { return false; }
@@ -131,6 +132,23 @@ export function TerminalXtermScreen() {
     try { localStorage.setItem(FONTSCALE_KEY, String(v)); } catch {}
   }, []);
 
+  /* ── Dynamic terminal height (visualViewport aware) ── */
+  const recalcTerminal = useCallback(() => {
+    const vv = window.visualViewport;
+    const area = terminalAreaRef.current;
+    if (!vv || !area) return;
+    const rect = area.getBoundingClientRect();
+    const topOffset = rect.top - (vv.offsetTop || 0);
+    const available = vv.height - topOffset;
+    area.style.height = `${Math.max(available, 100)}px`;
+    multiTermRef.current.forEach((entry) => {
+      try { entry.fitAddon.fit(); } catch { /* noop */ }
+    });
+  }, []);
+
+  /* ── Recalculate when keyboard inset or keys bar changes ── */
+  useEffect(() => { recalcTerminal(); }, [kbInsetSettled, keysExpanded, recalcTerminal]);
+
   /* ── Sticky modifiers ── */
   const clearSticky = useCallback(() => { setCtrlSticky(false); setAltSticky(false); }, []);
   const handleToggleCtrl = useCallback(() => { setCtrlSticky((v) => !v); setAltSticky(false); }, []);
@@ -166,13 +184,16 @@ export function TerminalXtermScreen() {
       const inset = Math.max(0, Math.round(window.innerHeight - vv.height - (vv.offsetTop || 0)));
       setKbInset(inset);
       if (kbSettleTimer.current) clearTimeout(kbSettleTimer.current);
-      kbSettleTimer.current = setTimeout(() => setKbInsetSettled(inset), 140);
+      kbSettleTimer.current = setTimeout(() => {
+        setKbInsetSettled(inset);
+        recalcTerminal();
+      }, 140);
     };
     vv.addEventListener("resize", onVV);
     vv.addEventListener("scroll", onVV);
     onVV();
     return () => { vv.removeEventListener("resize", onVV); vv.removeEventListener("scroll", onVV); };
-  }, []);
+  }, [recalcTerminal]);
 
   /* ── Bar height ── */
   useEffect(() => {
@@ -643,7 +664,7 @@ export function TerminalXtermScreen() {
       </div>
 
       {/* Terminal area — container único com display switching */}
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border"
+      <div ref={terminalAreaRef} className="relative min-h-0 flex-1 overflow-hidden rounded-lg border"
         style={{
           paddingBottom: keysExpanded ? keysReservePx(true, extraGroup, barH) : 0,
           background: "var(--hok-terminal)", borderColor: "var(--hok-terminal-line)",
