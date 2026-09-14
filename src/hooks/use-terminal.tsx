@@ -2,18 +2,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-// FASE 6 (múltiplas sessões simultâneas): o provider gerencia N sessões pty
-// independentes (abas "Sessão 1/2/..."), cada uma com seu WebSocket, seu
-// session_id de reattach e seu buffer de replay. O TerminalScreen mostra uma
-// aba por vez, mas todas as sessões continuam vivas em background (o backend
-// mantém o bash de cada uma).
-//
-// Herança da FIX 20/08: a conexão WebSocket vive AQUI (provider global acima
-// do AppShell) — trocar de aba do app (Chat/N8N/Config) não mata as sessões.
-
 const SETTINGS_KEY = "hokma.settings.v1";
 const TABS_KEY = "hokma.terminal.tabs.v1";
-// Migração: session_id da versão antiga (1 sessão única)
 const LEGACY_SESSION_KEY = "hokma.terminal.session.v1";
 
 export type Conn = "idle" | "connecting" | "live" | "offline";
@@ -28,8 +18,10 @@ export type TerminalTab = {
 type TabSession = {
   id: string;
   serverSessionId: string;
-  wantNew: boolean; // próxima conexão cria sessão NOVA no backend (?new=1)
+  wantNew: boolean;
   ws: WebSocket | null;
+  transport: "ws" | "sse";
+  sse: EventSource | null;
   conn: Conn;
   note: string;
   attached: boolean;
@@ -47,6 +39,8 @@ type TerminalContextValue = {
   activeTabId: string;
   setActiveTab: (id: string) => void;
   addTab: () => void;
+  duplicateTab: (id: string) => void;
+  setTabNote: (id: string, note: string) => void;
   removeTab: (id: string) => void;
   connect: (tabId: string) => void;
   ensureConnected: (tabId: string) => void;
@@ -76,8 +70,6 @@ function newTabId(): string {
   return "tab-" + Math.random().toString(36).slice(2, 10);
 }
 
-// Abas persistidas: [{id, sid}] + activeId. Migração da v1: se não há nada,
-// cria 1 aba com o session_id antigo (reattach à sessão única existente).
 function readTabs(): { tabs: { id: string; sid: string }[]; activeId: string } {
   try {
     const raw = localStorage.getItem(TABS_KEY);
@@ -103,15 +95,11 @@ function writeTabs(tabs: { id: string; sid: string }[], activeId: string) {
   try { localStorage.setItem(TABS_KEY, JSON.stringify({ tabs, activeId })); } catch { /* noop */ }
 }
 
-// Buffer contínuo do output do PTY (cap ~200 chunks): permite reescrever na
-// tela o que aconteceu no shell enquanto a aba do Terminal estava desmontada.
 const RECENT_MAX_CHUNKS = 200;
 const RECENT_MAX_CHARS = 100_000;
 
 export function TerminalProvider({ children }: { children: ReactNode }) {
   const sessionsRef = useRef<Map<string, TabSession>>(new Map());
-  // readTabs() é chamado UMA vez (useRef): a migração v1 gera um id novo por
-  // chamada — chamar duas vezes criava ids divergentes (activeTabId fantasma).
   const initialTabsRef = useRef(readTabs());
   const [tabs, setTabs] = useState<TerminalTab[]>(() =>
     initialTabsRef.current.tabs.map((t) => ({ id: t.id, serverSessionId: t.sid, conn: "idle" as Conn, note: "" })),
@@ -129,6 +117,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         serverSessionId: saved?.serverSessionId ?? "",
         wantNew: false,
         ws: null,
+        transport: "ws",
+        sse: null,
         conn: "idle",
         note: "",
         attached: false,
@@ -156,8 +146,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       : t)));
   };
 
-  // Scrollback enviado pelo servidor no reattach (base64 → UTF-8). É
-  // autoritativo — limpa o buffer de replay local e REESCREVE a tela do zero.
   const handleScrollback = useCallback((tabId: string, data: unknown) => {
     if (typeof data !== "string") return;
     const s = sessionsRef.current.get(tabId);
@@ -167,10 +155,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
       const raw = new TextDecoder("utf-8").decode(bytes);
       s.recent = [];
-      // FIX 22/08 (bug duplicação): o scrollback contém TUDO desde o início da
-      // sessão. Reaplicá-lo com append sobre o xterm existente empilhava uma
-      // cópia completa do histórico a cada reconexão (3 blocos idênticos no
-      // vídeo). O replay só é autoritativo se a tela for LIMPA antes.
       s.resetListeners.forEach((fn) => { try { fn(); } catch { /* noop */ } });
       s.outputListeners.forEach((fn) => { try { fn(raw); } catch { /* noop */ } });
     } catch { /* ignore */ }
@@ -196,16 +180,94 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     if (s.retryTimer) { clearTimeout(s.retryTimer); s.retryTimer = null; }
     try { s.ws?.close(); } catch { /* noop */ }
     s.ws = null;
+    if (s.sse) { try { s.sse.close(); } catch { /* noop */ } s.sse = null; }
+    s.transport = "ws";
+  };
+
+  const connectSSE = (tabId: string) => {
+    const s = sessionsRef.current.get(tabId);
+    if (!s) return;
+    if (s.intentionalClose) return;
+    setTabState(tabId, { conn: "connecting", note: "" });
+    const { serverUrl, token } = readSettings();
+    if (!serverUrl || !token) {
+      setTabState(tabId, { conn: "offline", note: "Server URL ou HOK_TOKEN ausente." });
+      return;
+    }
+    const base = serverUrl.replace(/\/$/, "");
+    const sid = s.serverSessionId;
+    const url = `${base}/terminal/sse?token=${encodeURIComponent(token)}${sid ? `&session_id=${encodeURIComponent(sid)}` : ""}`;
+    let es: EventSource;
+    try {
+      es = new EventSource(url);
+    } catch {
+      setTabState(tabId, { conn: "offline", note: "SSE indisponível." });
+      return;
+    }
+    s.sse = es;
+    s.transport = "sse";
+    es.onopen = () => {
+      if (s.sse !== es || s.intentionalClose) return;
+      setTabState(tabId, { conn: "live", note: "" });
+    };
+    es.addEventListener("session", (ev: MessageEvent) => {
+      if (s.sse !== es || s.intentionalClose) return;
+      try {
+        const ctrl = JSON.parse(ev.data) as Record<string, unknown>;
+        if (ctrl.type === "session") {
+          const newSid = typeof ctrl.session_id === "string" ? ctrl.session_id : "";
+          const created = ctrl.created === true;
+          if (newSid) {
+            s.serverSessionId = newSid;
+            setTabState(tabId, { serverSessionId: newSid });
+            const all = [...sessionsRef.current.values()];
+            writeTabs(all.map((x) => ({ id: x.id, sid: x.serverSessionId })), activeTabId);
+          }
+          setTabState(tabId, { conn: "live", note: "" });
+          if (created) s.liveListeners.forEach((fn) => { try { fn(); } catch { /* noop */ } });
+        }
+      } catch { /* ignore */ }
+    });
+    es.addEventListener("scrollback", (ev: MessageEvent) => {
+      if (s.sse !== es || s.intentionalClose) return;
+      handleScrollback(tabId, ev.data);
+    });
+    es.addEventListener("ready", () => {
+      if (s.sse !== es || s.intentionalClose) return;
+      s.attached = true;
+      if (s.retryTimer) { clearTimeout(s.retryTimer); s.retryTimer = null; }
+      s.retryDelay = 400;
+      setTabState(tabId, { conn: "live", note: "" });
+    });
+    es.onmessage = (ev) => {
+      if (s.sse !== es || s.intentionalClose) return;
+      try {
+        const binary = atob(ev.data);
+        const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+        const text = new TextDecoder("utf-8").decode(bytes);
+        s.recent.push(text);
+        if (s.recent.length > RECENT_MAX_CHUNKS) s.recent.shift();
+        let total = 0;
+        for (const c of s.recent) total += c.length;
+        while (total > RECENT_MAX_CHARS && s.recent.length > 1) {
+          s.recent.shift();
+          total = 0;
+          for (const c of s.recent) total += c.length;
+        }
+        s.outputListeners.forEach((fn) => { try { fn(text); } catch { /* noop */ } });
+      } catch { /* decode error */ }
+    };
+    es.onerror = () => {
+      if (s.sse !== es) return;
+      s.attached = false;
+      setTabState(tabId, { conn: "offline", note: "Falha na conexão SSE." });
+      scheduleReconnect(tabId);
+    };
   };
 
   const connectInternal = (tabId: string, opts?: { force?: boolean }) => {
     const s = sessionsRef.current.get(tabId);
     if (!s) return;
-    // FIX wsflap (22/08): guard ÚNICO de idempotência. Gatilhos concorrentes
-    // (visibilitychange + timer de backoff) fechavam o socket em progresso e
-    // reabriam outro, gerando o flapping conecta/desconecta no mesmo segundo.
-    // Se já existe conexão viva/em progresso, gatilho redundante é ignorado.
-    // Apenas credenciais alteradas (storage) forçam reabertura.
     if (!opts?.force && !s.intentionalClose && s.ws &&
         (s.ws.readyState === WebSocket.OPEN || s.ws.readyState === WebSocket.CONNECTING)) {
       return;
@@ -220,40 +282,43 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (!token) {
-      setTabState(tabId, { conn: "offline", note: "HOK_TOKEN ausente — o terminal exige autenticação." });
+      setTabState(tabId, { conn: "offline", note: "HOK_TOKEN ausente." });
       return;
     }
-
     setTabState(tabId, { conn: "connecting", note: "" });
     const base = serverUrl.replace(/\/$/, "").replace(/^http/, "ws");
     const sid = s.serverSessionId;
     const wantNew = s.wantNew;
     s.wantNew = false;
-    const url = `${base}/terminal/ws?token=${encodeURIComponent(token)}${sid ? `&session_id=${encodeURIComponent(sid)}` : ""}${wantNew ? "&new=1" : ""}`;
+    const wsUrl = `${base}/terminal/ws?token=${encodeURIComponent(token)}${sid ? `&session_id=${encodeURIComponent(sid)}` : ""}${wantNew ? "&new=1" : ""}`;
     let ws: WebSocket;
     try {
-      ws = new WebSocket(url);
+      ws = new WebSocket(wsUrl);
     } catch {
-      setTabState(tabId, { conn: "offline", note: "WebSocket indisponível neste ambiente." });
+      s.transport = "sse";
+      s.ws = null;
+      connectSSE(tabId);
       return;
     }
     s.ws = ws;
-    // FIX 21/08: o stream do PTY chega em frames BINÁRIOS (o servidor usa
-    // BinaryMessage, pois output de terminal pode ter bytes não-UTF-8).
-    // binaryType=arraybuffer garante ev.data como ArrayBuffer, não Blob.
     ws.binaryType = "arraybuffer";
-
+    let wsOpened = false;
+    let sseFallbackTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      if (s.ws !== ws || s.intentionalClose) return;
+      console.log(`[term] tab=${tabId} WS timeout → SSE fallback`);
+      try { ws.close(); } catch { /* noop */ }
+      s.ws = null;
+      s.transport = "sse";
+      connectSSE(tabId);
+    }, 3000);
     ws.onopen = () => {
       if (s.ws !== ws) return;
+      wsOpened = true;
+      if (sseFallbackTimer) { clearTimeout(sseFallbackTimer); sseFallbackTimer = null; }
       setTabState(tabId, { conn: "connecting" });
     };
-
     ws.onmessage = (ev) => {
       if (s.ws !== ws) return;
-      // Frame de controle/session vem como TEXT (JSON). O stream ao vivo do
-      // pty vem como BINARY: decodifica com TextDecoder (bytes inválidos de
-      // UTF-8 viram U+FFFD, que o xterm.js renderiza sem quebrar — e o
-      // browser NÃO fecha a conexão com 1002 como faria num frame text).
       let text: string;
       if (typeof ev.data === "string") {
         text = ev.data;
@@ -262,7 +327,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       } else {
         return;
       }
-
       if (!s.attached) {
         let ctrl: Record<string, unknown> | null = null;
         try { ctrl = JSON.parse(text) as Record<string, unknown>; } catch { ctrl = null; }
@@ -275,12 +339,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
               s.serverSessionId = newSid;
               setTabState(tabId, { serverSessionId: newSid });
               const all = [...sessionsRef.current.values()];
-                      writeTabs(all.map((x) => ({ id: x.id, sid: x.serverSessionId })), activeTabId);
+              writeTabs(all.map((x) => ({ id: x.id, sid: x.serverSessionId })), activeTabId);
             }
             setTabState(tabId, { conn: "live", note: "" });
-            if (created) {
-              s.liveListeners.forEach((fn) => { try { fn(); } catch { /* noop */ } });
-            }
+            if (created) s.liveListeners.forEach((fn) => { try { fn(); } catch { /* noop */ } });
             return;
           }
           if (ctrl.type === "scrollback") {
@@ -289,8 +351,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
           }
           if (ctrl.type === "ready") {
             s.attached = true;
-            // FIX wsflap: sucesso cancela qualquer backoff pendente e reseta
-            // o delay — um timer antigo não pode derrubar conexão saudável.
             if (s.retryTimer) { clearTimeout(s.retryTimer); s.retryTimer = null; }
             s.retryDelay = 400;
             setTabState(tabId, { conn: "live", note: "" });
@@ -302,8 +362,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
           }
         }
       }
-
-      // stream ao vivo (texto cru do pty)
       s.recent.push(text);
       if (s.recent.length > RECENT_MAX_CHUNKS) s.recent.shift();
       let total = 0;
@@ -315,21 +373,16 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       }
       s.outputListeners.forEach((fn) => { try { fn(text); } catch { /* noop */ } });
     };
-
     ws.onclose = (ev) => {
       if (s.ws === ws) s.ws = null;
+      if (!wsOpened) return;
+      if (sseFallbackTimer) { clearTimeout(sseFallbackTimer); sseFallbackTimer = null; }
       if (s.intentionalClose) return;
-      console.log(`[term] tab=${tabId} ws close code=${ev?.code ?? "?"} reason=${JSON.stringify(ev?.reason ?? "")} session_id=${s.serverSessionId}`);
+      console.log(`[term] tab=${tabId} ws close code=${ev?.code ?? "?"}`);
       s.attached = false;
       setTabState(tabId, { conn: "offline" });
-      // FIX 22/08 (tarefa 3 — estabilização): reconectar SEMPRE com backoff,
-      // inclusive com a aba oculta. Antes só reconectava quando o usuário
-      // voltava (visibilitychange), deixando o terminal morto em fundo.
-      // setTimeout roda throttled em background mas ainda dispara; ao voltar
-      // para primeiro plano o visibilitychange dispara conexão imediata.
       scheduleReconnect(tabId);
     };
-
     ws.onerror = () => {
       if (s.ws !== ws) return;
       setTabState(tabId, { conn: "offline", note: "Falha na conexão com o servidor." });
@@ -339,17 +392,18 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const connect = useCallback((tabId: string) => {
     getSession(tabId);
     connectInternal(tabId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ensureConnected = useCallback((tabId: string) => {
     const s = sessionsRef.current.get(tabId);
     if (s?.ws && (s.ws.readyState === WebSocket.OPEN || s.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
+    if (s?.transport === "sse" && s.sse && s.sse.readyState === EventSource.OPEN) {
+      return;
+    }
     connectInternal(tabId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const teardown = useCallback((tabId: string) => {
     teardownInternal(tabId);
@@ -358,7 +412,18 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
 
   const write = useCallback((tabId: string, data: string) => {
     const s = sessionsRef.current.get(tabId);
-    const ws = s?.ws;
+    if (!s) return;
+    if (s.transport === "sse") {
+      const { serverUrl, token } = readSettings();
+      if (!serverUrl) return;
+      fetch(`${serverUrl}/terminal/input?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: s.serverSessionId, data }),
+      }).catch(() => { /* ignore */ });
+      return;
+    }
+    const ws = s.ws;
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "input", data }));
     }
@@ -366,7 +431,18 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
 
   const sendResize = useCallback((tabId: string, cols: number, rows: number) => {
     const s = sessionsRef.current.get(tabId);
-    const ws = s?.ws;
+    if (!s) return;
+    if (s.transport === "sse" && cols > 0 && rows > 0) {
+      const { serverUrl, token } = readSettings();
+      if (!serverUrl) return;
+      fetch(`${serverUrl}/terminal/input?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: s.serverSessionId, cols, rows }),
+      }).catch(() => { /* ignore */ });
+      return;
+    }
+    const ws = s.ws;
     if (ws?.readyState === WebSocket.OPEN && cols > 0 && rows > 0) {
       ws.send(JSON.stringify({ type: "resize", cols, rows }));
     }
@@ -376,26 +452,20 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     const s = sessionsRef.current.get(tabId) ?? getSession(tabId);
     s.outputListeners.add(fn);
     return () => { s.outputListeners.delete(fn); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const subscribeReset = useCallback((tabId: string, fn: () => void) => {
     const s = sessionsRef.current.get(tabId) ?? getSession(tabId);
     s.resetListeners.add(fn);
     return () => { s.resetListeners.delete(fn); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const subscribeLive = useCallback((tabId: string, fn: () => void) => {
     const s = sessionsRef.current.get(tabId) ?? getSession(tabId);
     s.liveListeners.add(fn);
     return () => { s.liveListeners.delete(fn); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Consumo DESTRUTIVO: devolve os chunks acumulados e limpa o buffer. O
-  // consumidor (remount do TerminalTabBody) é único por aba — sem isso, cada
-  // remount reescrevia as MESMAS chunks acumulando cópias na tela.
   const takeRecentOutput = useCallback((tabId: string) => {
     const s = sessionsRef.current.get(tabId);
     if (!s) return "";
@@ -412,21 +482,36 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
 
   const addTab = useCallback(() => {
     const id = newTabId();
-    getSession(id);
-    sessionsRef.current.get(id)!.wantNew = true;
+    const s = getSession(id);
+    s.wantNew = true;
     setTabs((prev) => [...prev, { id, serverSessionId: "", conn: "idle", note: "" }]);
     setActiveTabId(id);
     connectInternal(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // FIX: duplicateTab cria sessão INDEPENDENTE (wantNew=true, sem copiar serverSessionId)
+  const duplicateTab = useCallback((tabId: string) => {
+    const src = sessionsRef.current.get(tabId);
+    if (!src) return;
+    const id = newTabId();
+    const s = getSession(id);
+    s.wantNew = true;
+    s.note = src.note;
+    setTabs((prev) => [...prev, { id, serverSessionId: "", conn: "idle", note: src.note }]);
+    setActiveTabId(id);
+    connectInternal(id);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setTabNote = useCallback((tabId: string, note: string) => {
+    setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, note } : t)));
+    const s = sessionsRef.current.get(tabId);
+    if (s) s.note = note;
+  }, []);
 
   const removeTab = useCallback((tabId: string) => {
     teardownInternal(tabId);
     sessionsRef.current.delete(tabId);
-    setTabs((prev) => {
-      const next = prev.filter((t) => t.id !== tabId);
-      return next;
-    });
+    setTabs((prev) => prev.filter((t) => t.id !== tabId));
     setActiveTabId((cur) => {
       if (cur !== tabId) return cur;
       const remaining = tabs.filter((t) => t.id !== tabId);
@@ -434,11 +519,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     });
     const all = [...sessionsRef.current.values()];
     writeTabs(all.map((x) => ({ id: x.id, sid: x.serverSessionId })), activeTabId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs, activeTabId]);
+  }, [tabs, activeTabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reconecta imediatamente ao voltar a aba/janela para primeiro plano
-  // (suspensão do Android/Chrome mata o socket em background).
   useEffect(() => {
     const onVis = () => {
       if (document.hidden) return;
@@ -452,8 +534,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
-  // Mudança de settings (Server URL / HOK_TOKEN) em outra aba/janela →
-  // reconecta todas as sessões com os valores novos.
   useEffect(() => {
     const handler = (e: StorageEvent) => {
       if (e.key === SETTINGS_KEY) {
@@ -465,7 +545,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value: TerminalContextValue = {
-    tabs, activeTabId, setActiveTab, addTab, removeTab,
+    tabs, activeTabId, setActiveTab, addTab, duplicateTab, setTabNote, removeTab,
     connect, ensureConnected, teardown, write, sendResize,
     subscribeOutput, subscribeReset, subscribeLive, takeRecentOutput,
   };

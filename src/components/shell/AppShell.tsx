@@ -9,6 +9,7 @@ import { SettingsModal } from "./SettingsModal";
 import { ChatScreen } from "@/components/screens/ChatScreen";
 import { TerminalScreen } from "@/components/screens/TerminalScreen";
 import { TerminalTTYDScreen } from "@/components/screens/TerminalTTYDScreen";
+import { TerminalXtermScreen } from "@/components/screens/TerminalXtermScreen";
 import { N8NScreen } from "@/components/screens/N8NScreen";
 import { BrainScreen } from "@/components/screens/BrainScreen";
 import { ModelsScreen } from "@/components/screens/ModelsScreen";
@@ -35,7 +36,7 @@ const SCREENS: Record<string, { render: () => ReactNode }> = {
   // DECISÃO FINAL (23/08): ttyd definitivo na aba "terminal" — estável em
   // produção; scroll oscilante persistiu no custom mesmo sem os lotes.
   // O xterm in-app (TerminalScreen) permanece versionado como rollback.
-  terminal: { render: () => <TerminalTTYDScreen /> },
+  terminal: { render: () => <TerminalXtermScreen /> },
   n8n: { render: () => <N8NScreen /> },
   brain: { render: () => <BrainScreen /> },
   models: { render: () => <ModelsScreen /> },
